@@ -20,75 +20,74 @@ st.set_page_config(
 # =============================================================================
 # FUNÇÃO PARA PROCESSAR CSV UPLOADADO
 # =============================================================================
-import re  # Certifique-se que está no topo
 
 @st.cache_data(ttl=3600)
 def process_uploaded_file(uploaded_file):
     if uploaded_file is not None:
         try:
-            # Parser ROBUSTO para CSVs "sujos"
+            # Lê como TEXTO primeiro para pular "sep=,"
+            content = uploaded_file.read().decode('latin1')
+            lines = content.split('\n')
+            
+            # PULA linha "sep=," e linhas vazias
+            data_lines = [line for line in lines[1:] if line.strip() and not line.startswith('sep=')]
+            
+            # Junta de volta e lê como CSV
+            csv_content = '\n'.join(data_lines)
             df = pd.read_csv(
-                uploaded_file, 
-                sep=',', 
-                encoding='latin1', 
+                io.StringIO(csv_content),
+                sep=',',
                 quotechar='"',
-                on_bad_lines='skip',      # PULA linhas problemáticas
-                engine='python',          # Mais flexível que C
-                low_memory=False
+                encoding='latin1',
+                on_bad_lines='skip',
+                engine='python'
             )
             
-            st.caption(f"✅ CSV lido: {len(df)} linhas brutas | Colunas: {len(df.columns)}")
-            
-            # Limpa nomes de colunas
-            df.columns = df.columns.str.strip().str.replace('"', '')
-            
-            # Data
-            df['data_venda'] = pd.to_datetime(df['Data'], format='%d-%m-%Y', errors='coerce')
-            
-            # Encontra coluna de preço (flexível)
-            preco_cols = [col for col in df.columns if any(x in col for x in ['Pr.Cmp', 'Custo', 'Valor', 'Preço'])]
-            preco_col = preco_cols[0] if preco_cols else None
-            if preco_col:
-                df['venda_raw'] = df[preco_col].astype(str)
-                df['venda'] = pd.to_numeric(
-                    df['venda_raw'].str.replace(',', '.').str.replace('€', '').str.extract('(\d+[.,]?\d*)')[0], 
-                    errors='coerce'
-                )
-            else:
-                st.warning("Coluna de preço não encontrada!")
+            if df.empty:
+                st.error("CSV vazio após limpeza.")
                 return pd.DataFrame()
             
-            # Segmentos (flexível)
-            familia_cols = [col for col in df.columns if 'Família' in col]
-            vendedor_cols = [col for col in df.columns if 'Vendedor' in col]
-            cliente_cols = [col for col in df.columns if 'Nome [Clientes]' in col or 'Cliente' in col]
+            st.caption(f"✅ Linhas brutas: {len(df)} | Colunas: {list(df.columns)}")
             
-            df['FAMILIA'] = df[familia_cols[0]].fillna('SEM_FAMILIA') if familia_cols else 'GERAL'
-            df['VENDEDOR'] = df[vendedor_cols[0]].fillna('SEM_VENDEDOR') if vendedor_cols else 'GERAL'
-            df['cliente'] = (df[cliente_cols[0]] if cliente_cols else 'SEM_CLIENTE').fillna('SEM_CLIENTE')
+            # Data (coluna 0 geralmente)
+            df['data_venda'] = pd.to_datetime(df.iloc[:, 0], format='%d-%m-%Y', errors='coerce')
             
-            # Filtra APENAS dados válidos
+            # Procura coluna de valor (qualquer com números)
+            numeric_cols = df.select_dtypes(include=['object']).columns
+            for col in numeric_cols:
+                df_test = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
+                if df_test.notna().sum() > len(df) * 0.1:  # >10% valores válidos
+                    df['venda'] = df_test
+                    break
+            else:
+                st.warning("Nenhuma coluna numérica encontrada!")
+                return pd.DataFrame()
+            
+            # FAMILIA e VENDEDOR (últimas colunas geralmente)
+            df['FAMILIA'] = df.iloc[:, -2].fillna('GERAL').astype(str)
+            df['VENDEDOR'] = df.iloc[:, -3].fillna('GERAL').astype(str) if len(df.columns) > 3 else 'GERAL'
+            df['cliente'] = df.iloc[:, 5].fillna('CLIENTE').astype(str) if len(df.columns) > 5 else 'CLIENTE'
+            
+            # FILTRA válidos
             df_clean = df.dropna(subset=['data_venda', 'venda'])
             df_clean = df_clean[df_clean['venda'] > 0].copy()
             
+            if len(df_clean) == 0:
+                st.error("Sem dados com valor > 0 após filtros.")
+                st.dataframe(df.head())
+                return pd.DataFrame()
+            
             st.success(f"""
-            ✅ Processado com sucesso!
-            📊 {len(df_clean):,} vendas válidas
-            💰 Total: {df_clean['venda'].sum():,.2f} €
-            📅 De {df_clean['data_venda'].min().date()} até {df_clean['data_venda'].max().date()}
+✅ SUCESSO TOTAL!
+📊 {len(df_clean):,} vendas válidas
+💰 {df_clean['venda'].sum():,.0f} €
+📈 Período: {df_clean['data_venda'].min().date()} → {df_clean['data_venda'].max().date()}
             """)
             
             return df_clean[['data_venda', 'FAMILIA', 'VENDEDOR', 'cliente', 'venda']]
             
         except Exception as e:
-            st.error(f"Erro final: {e}")
-            st.info("📋 Colunas disponíveis:")
-            # Tenta mostrar cabeçalho mesmo com erro
-            try:
-                df_head = pd.read_csv(uploaded_file, nrows=2, sep=',', encoding='latin1', on_bad_lines='skip')
-                st.write("Cabeçalho:", df_head.columns.tolist())
-            except:
-                pass
+            st.error(f"Erro definitivo: {e}")
             return pd.DataFrame()
     return pd.DataFrame()
 
