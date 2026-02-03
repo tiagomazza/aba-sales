@@ -4,6 +4,8 @@ import numpy as np
 import plotly.express as px
 from datetime import datetime, timedelta
 import io
+import re  # Para extração de padrões
+
 
 # =============================================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -18,46 +20,75 @@ st.set_page_config(
 # =============================================================================
 # FUNÇÃO PARA PROCESSAR CSV UPLOADADO
 # =============================================================================
-@st.cache_data(ttl=3600)  # Cache 1h para dados carregados
+@st.cache_data(ttl=3600)
 def process_uploaded_file(uploaded_file):
-    """Processa o CSV e calcula valor_venda = FT + FTP - NC"""
+    """Processa CSV irregular sem cabeçalho fixo"""
     if uploaded_file is not None:
-        # Lê o arquivo considerando possível separador e formato irregular
         try:
-            # Tenta diferentes encodings e separadores
-            df = pd.read_csv(uploaded_file, sep=r'\s+(?=\d)', engine='python', 
-                           header=None, encoding='latin1', on_bad_lines='skip')
+            # Lê como texto e processa linha por linha
+            content = uploaded_file.read().decode('latin1')
+            lines = content.split('\n')
             
-            # Baseado no snippet, assume formato: data,ORC,valor,cliente,produto,código
-            # Precisa de limpeza específica - adapte conforme estrutura exata
-            df.columns = ['data_str', 'ORC', 'valor_str', 'cliente', 'produto', 'codigo']
+            data_rows = []
+            for line in lines[1:]:  # Pula possível "sep ---"
+                if not line.strip():
+                    continue
+                parts = line.split(maxsplit=5)  # Máx 5 splits para manter resto
+                
+                if len(parts) >= 4:
+                    # Formato: [data, ORC/FT, valor, cliente, produto/código]
+                    data_str = parts[0]
+                    orc_tipo = parts[1]  # FT, ENC, ABA, etc.
+                    valor_str = parts[2]
+                    cliente = parts[3]
+                    produto = ' '.join(parts[4:]) if len(parts) > 4 else ''
+                    
+                    # Converte data DD-MM-YYYY
+                    try:
+                        data_venda = pd.to_datetime(data_str, format='%d-%m-%Y')
+                    except:
+                        continue
+                    
+                    # Extrai valor numérico (remove vírgula, pega números)
+                    valor_clean = valor_str.replace(',', '.').replace('€', '')
+                    valor = float(re.search(r'[\d.,]+', valor_clean).group().replace(',', '.') 
+                                  if re.search(r'[\d.,]+', valor_clean) else 0)
+                    
+                    # FAMILIA: extrai das primeiras letras maiúsculas do produto
+                    familia = re.match(r'^[A-Z]{2,5}', produto).group() if re.match(r'^[A-Z]{2,5}', produto) else 'OUTROS'
+                    
+                    # VENDEDOR: usa tipo de documento/orcamento ou default
+                    vendedor = orc_tipo if orc_tipo in ['FT', 'ENC', 'ABA'] else 'GERAL'
+                    
+                    data_rows.append({
+                        'data_venda': data_venda,
+                        'ORC_TIPO': orc_tipo,
+                        'venda': valor,
+                        'cliente': cliente,
+                        'produto': produto,
+                        'FAMILIA': familia,
+                        'VENDEDOR': vendedor
+                    })
             
-            # Converte data (formato DD-MM-YYYY)
-            df['data_venda'] = pd.to_datetime(df['data_str'], format='%d-%m-%Y', errors='coerce')
+            df = pd.DataFrame(data_rows)
+            if df.empty:
+                st.warning("Nenhuma linha válida encontrada.")
+                return pd.DataFrame()
             
-            # Extrai valor numérico do campo valor_str (pode estar com vírgula)
-            df['valor'] = df['valor_str'].astype(str).str.replace(',', '.').str.extract('(\d+[.,]?\d*)').astype(float)
+            # Filtra só vendas positivas e datas válidas
+            df = df[df['venda'] > 0].dropna(subset=['data_venda'])
             
-            # Assume colunas FAMILIA e VENDEDOR existem ou extrai de cliente/produto
-            if 'FAMILIA' not in df.columns:
-                df['FAMILIA'] = df['produto'].str.extract(r'([A-Z]+)')
-            if 'VENDEDOR' not in df.columns:
-                df['VENDEDOR'] = 'VENDEDOR_PADRAO'  # Ou extrair de cliente
-            
-            # Calcula venda = FT + FTP - NC (assumindo colunas FT, FTP, NC ou usa 'valor')
-            if all(col in df.columns for col in ['FT', 'FTP', 'NC']):
-                df['venda'] = df['FT'] + df['FTP'] - df['NC']
-            else:
-                df['venda'] = df['valor'].fillna(0)  # Usa valor disponível
-            
-            df = df.dropna(subset=['data_venda', 'venda'])
-            df['venda'] = pd.to_numeric(df['venda'], errors='coerce')
-            
+            st.success(f"✅ Processado: {len(df):,} linhas válidas | Valor total: {df['venda'].sum():,.2f} €")
             return df[['data_venda', 'FAMILIA', 'VENDEDOR', 'cliente', 'venda']]
+            
         except Exception as e:
-            st.error(f"Erro ao processar CSV: {e}")
+            st.error(f"Erro no processamento: {str(e)}")
+            st.info("Mostrando preview das primeiras linhas para debug:")
+            content = uploaded_file.read().decode('latin1')
+            st.text(content[:2000])
             return pd.DataFrame()
     return pd.DataFrame()
+
 
 # =============================================================================
 # FUNÇÃO PRINCIPAL
