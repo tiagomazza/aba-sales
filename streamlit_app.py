@@ -26,39 +26,72 @@ import re  # Certifique-se que está no topo
 def process_uploaded_file(uploaded_file):
     if uploaded_file is not None:
         try:
-            # Lê CSV CSV REAL com separador vírgula e cabeçalho
-            df = pd.read_csv(uploaded_file, sep=',', encoding='latin1', quotechar='"')
+            # Parser ROBUSTO para CSVs "sujos"
+            df = pd.read_csv(
+                uploaded_file, 
+                sep=',', 
+                encoding='latin1', 
+                quotechar='"',
+                on_bad_lines='skip',      # PULA linhas problemáticas
+                engine='python',          # Mais flexível que C
+                low_memory=False
+            )
             
-            # Renomeia colunas para facilitar (baseado no cabeçalho mostrado)
-            df.columns = df.columns.str.strip()  # Remove espaços extras
+            st.caption(f"✅ CSV lido: {len(df)} linhas brutas | Colunas: {len(df.columns)}")
             
-            # Converte Data para datetime
+            # Limpa nomes de colunas
+            df.columns = df.columns.str.strip().str.replace('"', '')
+            
+            # Data
             df['data_venda'] = pd.to_datetime(df['Data'], format='%d-%m-%Y', errors='coerce')
             
-            # Valor vendido = "Úl.Pr.Cmp. [Artigos]" (último preço de compra)
-            df['venda'] = pd.to_numeric(df['Úl.Pr.Cmp. [Artigos]'].str.replace(',', '.').str.replace('€', ''), errors='coerce')
+            # Encontra coluna de preço (flexível)
+            preco_cols = [col for col in df.columns if any(x in col for x in ['Pr.Cmp', 'Custo', 'Valor', 'Preço'])]
+            preco_col = preco_cols[0] if preco_cols else None
+            if preco_col:
+                df['venda_raw'] = df[preco_col].astype(str)
+                df['venda'] = pd.to_numeric(
+                    df['venda_raw'].str.replace(',', '.').str.replace('€', '').str.extract('(\d+[.,]?\d*)')[0], 
+                    errors='coerce'
+                )
+            else:
+                st.warning("Coluna de preço não encontrada!")
+                return pd.DataFrame()
             
-            # Usa colunas existentes!
-            df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA')
-            df['VENDEDOR'] = df['Vendedor'].fillna('SEM_VENDEDOR')
-            df['cliente'] = df['Nome [Clientes]'].fillna('SEM_CLIENTE')
+            # Segmentos (flexível)
+            familia_cols = [col for col in df.columns if 'Família' in col]
+            vendedor_cols = [col for col in df.columns if 'Vendedor' in col]
+            cliente_cols = [col for col in df.columns if 'Nome [Clientes]' in col or 'Cliente' in col]
             
-            # Filtra dados válidos
-            df = df.dropna(subset=['data_venda', 'venda'])
-            df = df[df['venda'] > 0]
+            df['FAMILIA'] = df[familia_cols[0]].fillna('SEM_FAMILIA') if familia_cols else 'GERAL'
+            df['VENDEDOR'] = df[vendedor_cols[0]].fillna('SEM_VENDEDOR') if vendedor_cols else 'GERAL'
+            df['cliente'] = (df[cliente_cols[0]] if cliente_cols else 'SEM_CLIENTE').fillna('SEM_CLIENTE')
             
-            st.success(f"✅ Carregado: {len(df):,} vendas válidas | Total: {df['venda'].sum():,.2f} €")
-            st.caption(f"Período: {df['data_venda'].min().date()} a {df['data_venda'].max().date()}")
+            # Filtra APENAS dados válidos
+            df_clean = df.dropna(subset=['data_venda', 'venda'])
+            df_clean = df_clean[df_clean['venda'] > 0].copy()
             
-            return df[['data_venda', 'FAMILIA', 'VENDEDOR', 'cliente', 'venda']]
+            st.success(f"""
+            ✅ Processado com sucesso!
+            📊 {len(df_clean):,} vendas válidas
+            💰 Total: {df_clean['venda'].sum():,.2f} €
+            📅 De {df_clean['data_venda'].min().date()} até {df_clean['data_venda'].max().date()}
+            """)
+            
+            return df_clean[['data_venda', 'FAMILIA', 'VENDEDOR', 'cliente', 'venda']]
             
         except Exception as e:
-            st.error(f"Erro: {e}")
-            st.info("Colunas encontradas:")
-            df_test = pd.read_csv(uploaded_file, nrows=5, sep=',', encoding='utf-8')
-            st.write(df_test.columns.tolist())
+            st.error(f"Erro final: {e}")
+            st.info("📋 Colunas disponíveis:")
+            # Tenta mostrar cabeçalho mesmo com erro
+            try:
+                df_head = pd.read_csv(uploaded_file, nrows=2, sep=',', encoding='latin1', on_bad_lines='skip')
+                st.write("Cabeçalho:", df_head.columns.tolist())
+            except:
+                pass
             return pd.DataFrame()
     return pd.DataFrame()
+
 
 
 # =============================================================================
