@@ -22,70 +22,67 @@ st.set_page_config(
 # =============================================================================
 @st.cache_data(ttl=3600)
 def process_uploaded_file(uploaded_file):
-    """Processa CSV irregular sem cabeçalho fixo"""
     if uploaded_file is not None:
         try:
-            # Lê como texto e processa linha por linha
             content = uploaded_file.read().decode('latin1')
-            lines = content.split('\n')
+            lines = [line.strip() for line in content.split('\n') if line.strip()]
+            
+            st.info(f"📊 Total linhas não-vazias: {len(lines)}")
+            st.text(f"Primeira linha: {lines[0][:100] if lines else 'VAZIA'}")
+            st.text(f"Segunda linha: {lines[1][:100] if len(lines)>1 else 'VAZIA'}")
             
             data_rows = []
-            for line in lines[1:]:  # Pula possível "sep ---"
-                if not line.strip():
-                    continue
-                parts = line.split(maxsplit=5)  # Máx 5 splits para manter resto
+            valid_count = 0
+            
+            for i, line in enumerate(lines[:20]):  # Testa só primeiras 20
+                st.text(f"Linha {i}: {line[:80]}...")
                 
-                if len(parts) >= 4:
-                    # Formato: [data, ORC/FT, valor, cliente, produto/código]
-                    data_str = parts[0]
-                    orc_tipo = parts[1]  # FT, ENC, ABA, etc.
-                    valor_str = parts[2]
-                    cliente = parts[3]
-                    produto = ' '.join(parts[4:]) if len(parts) > 4 else ''
-                    
-                    # Converte data DD-MM-YYYY
-                    try:
-                        data_venda = pd.to_datetime(data_str, format='%d-%m-%Y')
-                    except:
+                # Split mais flexível - pelo menos 3 partes
+                parts = re.split(r'\s+', line, maxsplit=4)
+                if len(parts) < 3:
+                    continue
+                
+                # Debug das partes
+                st.text(f"  Partes: {parts}")
+                
+                data_str = parts[0]
+                try:
+                    data_venda = pd.to_datetime(data_str, format='%d-%m-%Y', errors='coerce')
+                    if pd.isna(data_venda):
                         continue
-                    
-                    # Extrai valor numérico (remove vírgula, pega números)
-                    valor_clean = valor_str.replace(',', '.').replace('€', '')
-                    valor = float(re.search(r'[\d.,]+', valor_clean).group().replace(',', '.') 
-                                  if re.search(r'[\d.,]+', valor_clean) else 0)
-                    
-                    # FAMILIA: extrai das primeiras letras maiúsculas do produto
-                    familia = re.match(r'^[A-Z]{2,5}', produto).group() if re.match(r'^[A-Z]{2,5}', produto) else 'OUTROS'
-                    
-                    # VENDEDOR: usa tipo de documento/orcamento ou default
-                    vendedor = orc_tipo if orc_tipo in ['FT', 'ENC', 'ABA'] else 'GERAL'
-                    
+                except:
+                    continue
+                
+                # Procura qualquer número com vírgula/pontos na linha
+                valor_match = re.search(r'(\d+[.,]\d{2})', line)
+                valor = float(valor_match.group(1).replace(',', '.')) if valor_match else 0
+                
+                cliente = parts[2] if len(parts) > 2 else 'DESCONHECIDO'
+                familia = re.match(r'^[A-Z]{2,6}', parts[-1]).group() if len(parts) > 3 and re.match(r'^[A-Z]{2,6}', parts[-1]) else 'GERAL'
+                vendedor = parts[1][:3] if len(parts) > 1 else 'VENDEDOR'
+                
+                if valor > 0:
                     data_rows.append({
                         'data_venda': data_venda,
-                        'ORC_TIPO': orc_tipo,
-                        'venda': valor,
-                        'cliente': cliente,
-                        'produto': produto,
                         'FAMILIA': familia,
-                        'VENDEDOR': vendedor
+                        'VENDEDOR': vendedor,
+                        'cliente': cliente,
+                        'produto': ' '.join(parts[3:]) if len(parts) > 3 else '',
+                        'venda': valor
                     })
+                    valid_count += 1
             
-            df = pd.DataFrame(data_rows)
-            if df.empty:
-                st.warning("Nenhuma linha válida encontrada.")
+            st.success(f"✅ {valid_count} linhas válidas encontradas!")
+            
+            if data_rows:
+                df = pd.DataFrame(data_rows)
+                return df[['data_venda', 'FAMILIA', 'VENDEDOR', 'cliente', 'venda']]
+            else:
+                st.error("❌ Ainda sem dados válidos. Verifique formato das datas/valores.")
                 return pd.DataFrame()
-            
-            # Filtra só vendas positivas e datas válidas
-            df = df[df['venda'] > 0].dropna(subset=['data_venda'])
-            
-            st.success(f"✅ Processado: {len(df):,} linhas válidas | Valor total: {df['venda'].sum():,.2f} €")
-            return df[['data_venda', 'FAMILIA', 'VENDEDOR', 'cliente', 'venda']]
-            
+                
         except Exception as e:
-            st.error(f"Erro no processamento: {str(e)}")
-            st.info("Mostrando preview das primeiras linhas para debug:")
-            content = uploaded_file.read().decode('latin1')
-            st.text(content[:2000])
+            st.error(f"Erro geral: {str(e)}")
             return pd.DataFrame()
     return pd.DataFrame()
 
