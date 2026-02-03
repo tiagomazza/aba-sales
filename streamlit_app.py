@@ -134,18 +134,19 @@ def main():
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     total_vendas = df_filtered['venda'].sum()
-    total_linhas = len(df_filtered)
+    clientes_mov = df_filtered['cliente'].nunique()  # NOVO
     familias = df_filtered['FAMILIA'].nunique()
     vendedores = df_filtered['vendedor'].nunique()
     docs = df_filtered['documento'].nunique()
-    ticket = total_vendas / total_linhas if total_linhas else 0
+    ticket = total_vendas / len(df_filtered) if len(df_filtered) else 0  # Por linha também ok
     
     with col1: st.metric("Valor Total", f"€{total_vendas:,.2f}")
-    with col2: st.metric("Linhas", f"{total_linhas:,}")
+    with col2: st.metric("Clientes Mov.", f"{clientes_mov:,}")  # ALTERADO
     with col3: st.metric("Famílias", familias)
     with col4: st.metric("Vendedores", vendedores)
     with col5: st.metric("Documentos", docs)
     with col6: st.metric("Ticket Médio", f"€{ticket:.2f}")
+
 
     # =============================================================================
     # GRÁFICOS
