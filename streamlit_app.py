@@ -196,4 +196,13 @@ def main():
     with col1:
         st.dataframe(df_filtered.head(100), use_container_width=True)
     with col2:
-        csv = df_filtered.to_csv(i
+        csv = df_filtered.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "📥 Download CSV",
+            csv,
+            "vendas_filtradas.csv",
+            "text/csv"
+        )
+
+if __name__ == "__main__":
+    main()
