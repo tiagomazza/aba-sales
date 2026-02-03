@@ -90,39 +90,33 @@ def main():
     st.session_state.df = df
     st.sidebar.success(f"✅ {len(df):,} vendas carregadas")
 
-    # Sidebar - Filtros
     st.sidebar.header("🔍 Filtros")
+
+    # Data
+    date_range = st.sidebar.date_input("Período", value=(first_day.date(), today.date()))
     
-    # Data (default: mês atual)
-    today = datetime.now()
-    first_day = today.replace(day=1)
-    date_range = st.sidebar.date_input(
-        "Período",
-        value=(first_day.date(), today.date()),
-        min_value=df['data_venda'].min().date(),
-        max_value=df['data_venda'].max().date()
-    )
+    # Família
+    selected_familia = st.sidebar.multiselect("Família", familia_opts, default=familia_opts[:10])
     
-    # Aplica filtro data
+    # Documentos
+    selected_docs = st.sidebar.multiselect("Documentos", doc_opts, default=['FT'])
+    
+    # NOVO: Vendedor
+    vendedor_opts = sorted(df_filtered["vendedor"].dropna().unique())
+    selected_vendedores = st.sidebar.multiselect("Vendedor", vendedor_opts, default=vendedor_opts[:5])
+    
+    # Aplica TODOS os filtros
     df_filtered = df.copy()
     if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
         start, end = date_range
-        df_filtered = df_filtered[
-            (df_filtered["data_venda"].dt.date >= start) &
-            (df_filtered["data_venda"].dt.date <= end)
-        ]
+        df_filtered = df_filtered[(df_filtered["data_venda"].dt.date >= start) & 
+                                 (df_filtered["data_venda"].dt.date <= end)]
     
-    # Filtros específicos
-    familia_opts = sorted(df_filtered["FAMILIA"].unique())
-    doc_opts = sorted(df_filtered["documento"].unique())
-    
-    selected_familia = st.sidebar.multiselect("Família", familia_opts, default=familia_opts[:10])
-    selected_docs = st.sidebar.multiselect("Documentos", doc_opts, default=['FT'])
-    
-    if selected_familia:
-        df_filtered = df_filtered[df_filtered["FAMILIA"].isin(selected_familia)]
-    if selected_docs:
-        df_filtered = df_filtered[df_filtered["documento"].isin(selected_docs)]
+    if selected_familia: df_filtered = df_filtered[df_filtered["FAMILIA"].isin(selected_familia)]
+    if selected_docs: df_filtered = df_filtered[df_filtered["documento"].isin(selected_docs)]
+    if selected_vendedores: df_filtered = df_filtered[df_filtered["vendedor"].isin(selected_vendedores)]
+
+
 
     # =============================================================================
     # RESUMO
