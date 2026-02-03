@@ -27,8 +27,7 @@ def process_uploaded_file(uploaded_file):
     if uploaded_file is not None:
         try:
             # Lê CSV CSV REAL com separador vírgula e cabeçalho
-            df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8', quotechar='"', 
-                           dtype={'Data': str, 'Vendedor': str, 'Família [Artigos]': str})
+            df = pd.read_csv(uploaded_file, sep=',', encoding='latin1', quotechar='"')
             
             # Renomeia colunas para facilitar (baseado no cabeçalho mostrado)
             df.columns = df.columns.str.strip()  # Remove espaços extras
