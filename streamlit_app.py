@@ -20,69 +20,44 @@ st.set_page_config(
 # =============================================================================
 # FUNÇÃO PARA PROCESSAR CSV UPLOADADO
 # =============================================================================
+import re  # Certifique-se que está no topo
+
 @st.cache_data(ttl=3600)
 def process_uploaded_file(uploaded_file):
     if uploaded_file is not None:
         try:
-            content = uploaded_file.read().decode('latin1')
-            lines = [line.strip() for line in content.split('\n') if line.strip()]
+            # Lê CSV CSV REAL com separador vírgula e cabeçalho
+            df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8', quotechar='"', 
+                           dtype={'Data': str, 'Vendedor': str, 'Família [Artigos]': str})
             
-            st.info(f"📊 Total linhas não-vazias: {len(lines)}")
-            st.text(f"Primeira linha: {lines[0][:100] if lines else 'VAZIA'}")
-            st.text(f"Segunda linha: {lines[1][:100] if len(lines)>1 else 'VAZIA'}")
+            # Renomeia colunas para facilitar (baseado no cabeçalho mostrado)
+            df.columns = df.columns.str.strip()  # Remove espaços extras
             
-            data_rows = []
-            valid_count = 0
+            # Converte Data para datetime
+            df['data_venda'] = pd.to_datetime(df['Data'], format='%d-%m-%Y', errors='coerce')
             
-            for i, line in enumerate(lines[:20]):  # Testa só primeiras 20
-                st.text(f"Linha {i}: {line[:80]}...")
-                
-                # Split mais flexível - pelo menos 3 partes
-                parts = re.split(r'\s+', line, maxsplit=4)
-                if len(parts) < 3:
-                    continue
-                
-                # Debug das partes
-                st.text(f"  Partes: {parts}")
-                
-                data_str = parts[0]
-                try:
-                    data_venda = pd.to_datetime(data_str, format='%d-%m-%Y', errors='coerce')
-                    if pd.isna(data_venda):
-                        continue
-                except:
-                    continue
-                
-                # Procura qualquer número com vírgula/pontos na linha
-                valor_match = re.search(r'(\d+[.,]\d{2})', line)
-                valor = float(valor_match.group(1).replace(',', '.')) if valor_match else 0
-                
-                cliente = parts[2] if len(parts) > 2 else 'DESCONHECIDO'
-                familia = re.match(r'^[A-Z]{2,6}', parts[-1]).group() if len(parts) > 3 and re.match(r'^[A-Z]{2,6}', parts[-1]) else 'GERAL'
-                vendedor = parts[1][:3] if len(parts) > 1 else 'VENDEDOR'
-                
-                if valor > 0:
-                    data_rows.append({
-                        'data_venda': data_venda,
-                        'FAMILIA': familia,
-                        'VENDEDOR': vendedor,
-                        'cliente': cliente,
-                        'produto': ' '.join(parts[3:]) if len(parts) > 3 else '',
-                        'venda': valor
-                    })
-                    valid_count += 1
+            # Valor vendido = "Úl.Pr.Cmp. [Artigos]" (último preço de compra)
+            df['venda'] = pd.to_numeric(df['Úl.Pr.Cmp. [Artigos]'].str.replace(',', '.').str.replace('€', ''), errors='coerce')
             
-            st.success(f"✅ {valid_count} linhas válidas encontradas!")
+            # Usa colunas existentes!
+            df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA')
+            df['VENDEDOR'] = df['Vendedor'].fillna('SEM_VENDEDOR')
+            df['cliente'] = df['Nome [Clientes]'].fillna('SEM_CLIENTE')
             
-            if data_rows:
-                df = pd.DataFrame(data_rows)
-                return df[['data_venda', 'FAMILIA', 'VENDEDOR', 'cliente', 'venda']]
-            else:
-                st.error("❌ Ainda sem dados válidos. Verifique formato das datas/valores.")
-                return pd.DataFrame()
-                
+            # Filtra dados válidos
+            df = df.dropna(subset=['data_venda', 'venda'])
+            df = df[df['venda'] > 0]
+            
+            st.success(f"✅ Carregado: {len(df):,} vendas válidas | Total: {df['venda'].sum():,.2f} €")
+            st.caption(f"Período: {df['data_venda'].min().date()} a {df['data_venda'].max().date()}")
+            
+            return df[['data_venda', 'FAMILIA', 'VENDEDOR', 'cliente', 'venda']]
+            
         except Exception as e:
-            st.error(f"Erro geral: {str(e)}")
+            st.error(f"Erro: {e}")
+            st.info("Colunas encontradas:")
+            df_test = pd.read_csv(uploaded_file, nrows=5, sep=',', encoding='utf-8')
+            st.write(df_test.columns.tolist())
             return pd.DataFrame()
     return pd.DataFrame()
 
