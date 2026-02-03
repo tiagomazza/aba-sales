@@ -15,83 +15,99 @@ st.set_page_config(
 )
 
 # =============================================================================
-# PROCESSAMENTO CSV (ROBUSTO - MANTIDO ORIGINAL)
+# PROCESSAMENTO CSV (CORRIGIDO PARA SEU ARQUIVO)
 # =============================================================================
 @st.cache_data(ttl=3600)
 def process_uploaded_file(uploaded_file):
-    """Processa CSV com separador auto-detect, filtra anulações, NC negativo"""
+    """Processa CSV com 'sep=' no cabeçalho - CORRIGIDO"""
     if uploaded_file is not None:
         try:
-            # Lê conteúdo bruto (MANTIDO IGUAL)
+            # Lê conteúdo bruto
             content = uploaded_file.read().decode('latin1')
-            lines = content.split('\\n')
-            data_lines = [line for line in lines[1:] if line.strip() and not line.startswith('sep=')]
-            csv_content = '\\n'.join(data_lines)
+            lines = content.split('\n')
             
-            # Auto-detect separador: , ou ; (MANTIDO IGUAL)
-            for sep in [',', ';']:
-                try:
-                    df = pd.read_csv(
-                        io.StringIO(csv_content),
-                        sep=sep,
-                        quotechar='"',
-                        encoding='latin1',
-                        on_bad_lines='skip',
-                        engine='python'
-                    )
-                    break
-                except:
+            # ✅ CORREÇÃO: Remove linha com 'sep=' E pega o separador real
+            sep_line = None
+            data_lines = []
+            for i, line in enumerate(lines):
+                if 'sep=' in line:
+                    # Extrai o separador real da linha sep=
+                    sep_line = line.strip()
                     continue
-            else:
-                st.error("❌ Formato CSV não reconhecido")
+                if line.strip():
+                    data_lines.append(line)
+            
+            if not data_lines:
+                st.error("❌ Arquivo vazio após limpeza")
                 return pd.DataFrame()
             
-            # Limpa colunas (MANTIDO IGUAL)
+            # Detecta separador da linha 'sep=' ou usa padrão
+            real_sep = ','
+            if sep_line:
+                if ';' in sep_line:
+                    real_sep = ';'
+                elif '\t' in sep_line:
+                    real_sep = '\t'
+            
+            st.caption(f"🔍 Detectado separador: **'{real_sep}'**")
+            
+            # Junta linhas de dados (sem cabeçalho sep=)
+            csv_content = '\n'.join(data_lines)
+            
+            # Lê com o separador correto
+            df = pd.read_csv(
+                io.StringIO(csv_content),
+                sep=real_sep,
+                quotechar='"',
+                encoding='latin1',
+                on_bad_lines='skip',
+                engine='python'
+            )
+            
+            # Limpa colunas
             df.columns = df.columns.str.strip().str.replace('"', '')
             
-            # COLUNAS EXATAS com fallback (MANTIDO IGUAL)
+            # Debug: mostra primeiras colunas
+            st.caption(f"📋 **{len(df.columns)}** colunas detectadas: {list(df.columns[:5])}...")
+            
+            # Data
             df['data_venda'] = pd.to_datetime(df.get('Data', df.iloc[:, 0]), format='%d-%m-%Y', errors='coerce')
             
-            # VALOR EXATO (MANTIDO IGUAL)
+            # Valor
             valor_col = 'Valor [Documentos GC Lin]'
             if valor_col not in df.columns:
-                valor_cols = [col for col in df.columns if 'Valor' in col]
+                valor_cols = [col for col in df.columns if 'Valor' in col and 'Documentos' in col]
+                if not valor_cols:
+                    valor_cols = [col for col in df.columns if 'Valor' in col]
                 if valor_cols:
                     valor_col = valor_cols[0]
                 else:
-                    st.error(f"❌ Coluna '{valor_col}' não encontrada")
+                    st.error(f"❌ Coluna valor não encontrada")
                     return pd.DataFrame()
             
             df['venda_bruta'] = pd.to_numeric(
                 df[valor_col].astype(str)
-                 .str.replace(',', '.')
-                 .str.replace('€', '')
-                 .str.replace(' ', ''),
+                .str.replace(',', '.')
+                .str.replace('€', '')
+                .str.replace(' ', ''),
                 errors='coerce'
             )
             
-            df['FAMILIA'] = df.filter(regex='Família').iloc[:, 0].fillna('SEM_FAMILIA').astype(str)
-            
-            # ✅ APENAS ESTA PARTE MUDOU - busca "Doc." APÓS CSV processado
+            # ✅ DOCUMENTO - busca "Doc."
             doc_col = None
             if 'Doc.' in df.columns:
                 doc_col = 'Doc.'
-                st.caption(f"✅ Coluna 'Doc.' encontrada e usada")
             elif any('Doc' in col for col in df.columns):
                 doc_col = next(col for col in df.columns if 'Doc' in col)
-                st.caption(f"✅ Coluna documento encontrada: **{doc_col}**")
-            else:
-                # Fallback original mantido
-                df['documento'] = df.filter(regex='Documentos').iloc[:, 0].fillna('').astype(str)
-                st.warning("⚠️ Usando fallback para documentos")
             
-            if doc_col:
-                df['documento'] = df[doc_col].fillna('').astype(str)
+            df['documento'] = df[doc_col].fillna('SEM_DOC').astype(str) if doc_col else 'SEM_DOC'
             
+            # Outras colunas
+            df['FAMILIA'] = df.filter(regex='Família|Familia', regex=True).iloc[:, 0].fillna('SEM_FAMILIA').astype(str)
             df['vendedor'] = df.filter(regex='Vendedor').iloc[:, 0].fillna('SEM_VENDEDOR').astype(str)
             df['cliente'] = df.filter(regex='Nome|Cliente').iloc[:, 0].fillna('SEM_CLIENTE').astype(str)
             
-            # VALOR LÍQUIDO (MANTIDO IGUAL)
+            # Valor líquido (NC negativo)
             def valor_liquido(row):
                 if pd.isna(row['venda_bruta']) or row['venda_bruta'] <= 0:
                     return 0.0
@@ -101,11 +117,11 @@ def process_uploaded_file(uploaded_file):
             
             df['venda_liquida'] = df.apply(valor_liquido, axis=1)
             
-            # FILTRAGEM (MANTIDO IGUAL)
+            # Filtragem
             df_clean = df.dropna(subset=['data_venda', 'venda_liquida'])
             
-            # Remove ANULAÇÕES (MANTIDO IGUAL)
-            anulacao_cols = df.filter(like='anulação').columns
+            # Remove anulações
+            anulacao_cols = df.filter(like='anulação', axis=1).columns
             if len(anulacao_cols) > 0:
                 anuladas = df_clean[anulacao_cols[0]].notna() & (df_clean[anulacao_cols[0]] != '')
                 n_anuladas = anuladas.sum()
@@ -113,40 +129,43 @@ def process_uploaded_file(uploaded_file):
                 if n_anuladas > 0:
                     st.caption(f"🗑️ **{n_anuladas}** anulações removidas")
             
-            st.caption(f"📊 **{len(df_clean)}** vendas líquidas válidas | Valor: **{valor_col}** | Documento: **{doc_col or 'auto'}**")
+            st.success(f"✅ **{len(df_clean):,}** vendas processadas | Valor: **{valor_col}** | Doc: **{doc_col or 'N/A'}**")
             return df_clean[['data_venda', 'FAMILIA', 'documento', 'vendedor', 'cliente', 'venda_liquida']]
             
         except Exception as e:
-            st.error(f"Erro processamento: **{e}**")
-            st.error(f"Detalhes: {str(e)}")
+            st.error(f"❌ Erro: **{e}**")
+            st.error("📄 Debug: primeiras linhas do arquivo:")
+            # Mostra primeiras linhas para debug
+            content_preview = '\n'.join(lines[:5] if 'lines' in locals() else content.split('\n')[:5])
+            st.code(content_preview, language='text')
             return pd.DataFrame()
     return pd.DataFrame()
 
-# Resto do código permanece EXATAMENTE IGUAL...
+# =============================================================================
+# APLICAÇÃO PRINCIPAL (IGUAL)
+# =============================================================================
 def main():
     st.title("💰 **Dashboard Vendas Líquidas**")
-    st.markdown("**Valor [Documentos GC Lin]** | NC negativo | Sem anulações")
     
     st.sidebar.header("📁 **Upload CSV**")
     uploaded_file = st.sidebar.file_uploader("Escolha arquivo", type="csv")
     
     if uploaded_file is None:
-        st.info("👆 **Carregue o CSV** para análise")
+        st.info("👆 **Carregue o CSV**")
         st.stop()
     
     with st.spinner("🔄 Processando..."):
         df = process_uploaded_file(uploaded_file)
     
     if df.empty:
-        st.error("❌ **Sem dados válidos processados**")
+        st.error("❌ **Sem dados válidos**")
         st.stop()
     
     st.session_state.df = df
-    st.sidebar.success(f"✅ **{len(df):,}** vendas líquidas")
+    st.sidebar.success(f"✅ **{len(df):,}** vendas")
 
-    # FILTROS (MANTIDOS IGUAIS)
+    # FILTROS
     st.sidebar.header("🔍 **Filtros**")
-    
     today = datetime.now()
     first_day_month = today.replace(day=1)
     date_range = st.sidebar.date_input(
@@ -164,7 +183,8 @@ def main():
             (df_filtered["data_venda"].dt.date <= end)
         ]
     
-    doc_opts = sorted(df_filtered["documento"].dropna().unique())
+    # ✅ FILTRO DOCUMENTOS DA COLUNA "Doc."
+    doc_opts = sorted(df_filtered["documento"].dropna().unique())[:50]  # Limita opções
     default_docs = [d for d in ['FT', 'FTS', 'NC', 'FTP'] if d in doc_opts]
     selected_docs = st.sidebar.multiselect("📄 Documentos", doc_opts, default=default_docs)
     
@@ -181,10 +201,8 @@ def main():
     if selected_vendedores:
         df_filtered = df_filtered[df_filtered["vendedor"].isin(selected_vendedores)]
 
-    # KPIs, VISUALIZAÇÕES e TABELA permanecem EXATAMENTE iguais...
-    # [Código das KPIs, tabs e tabela igual ao original - omitido por brevidade]
-    
-    st.markdown("### 📊 **Indicadores Líquidos**")
+    # KPIs
+    st.markdown("### 📊 **Indicadores**")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     valor_total = df_filtered['venda_liquida'].sum()
@@ -201,8 +219,7 @@ def main():
     with col5: st.metric("📄 Documentos", docs_total)
     with col6: st.metric("🎯 Ticket Médio", f"€{ticket_medio:.2f}")
 
-    # [Resto das tabs igual ao original...]
-    
+    # Tabela final
     st.markdown("### 📋 **Dados Filtrados**")
     col1, col2 = st.columns([4, 1])
     
@@ -217,9 +234,9 @@ def main():
     with col2:
         csv_export = df_filtered.to_csv(index=False, sep=';', encoding='utf-8-sig')
         st.download_button(
-            label="📥 **Export CSV**",
+            label="📥 Export CSV",
             data=csv_export,
-            file_name=f"vendas_liquidas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"vendas_filtradas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv"
         )
 
