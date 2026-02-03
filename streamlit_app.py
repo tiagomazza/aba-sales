@@ -24,9 +24,9 @@ def process_uploaded_file(uploaded_file):
         try:
             # Lê conteúdo bruto
             content = uploaded_file.read().decode('latin1')
-            lines = content.split('\n')
+            lines = content.split('\\n')
             data_lines = [line for line in lines[1:] if line.strip() and not line.startswith('sep=')]
-            csv_content = '\n'.join(data_lines)
+            csv_content = '\\n'.join(data_lines)
             
             # Auto-detect separador: , ou ;
             for sep in [',', ';']:
@@ -72,7 +72,23 @@ def process_uploaded_file(uploaded_file):
             )
             
             df['FAMILIA'] = df.filter(regex='Família').iloc[:, 0].fillna('SEM_FAMILIA').astype(str)
-            df['documento'] = df.filter(regex='Doc\\.|Documentos').iloc[:, 0].fillna('').astype(str)
+            
+            # ✅ CORRIGIDO: Busca especificamente pela coluna "Doc."
+            doc_col = None
+            if 'Doc.' in df.columns:
+                doc_col = 'Doc.'
+            else:
+                # Fallback para padrões similares
+                doc_cols = [col for col in df.columns if 'Doc' in col or 'Document' in col]
+                if doc_cols:
+                    doc_col = doc_cols[0]
+            
+            if doc_col:
+                df['documento'] = df[doc_col].fillna('').astype(str)
+            else:
+                df['documento'] = ''.astype(str)
+                st.warning("⚠️ Coluna 'Doc.' não encontrada - usando valores vazios")
+            
             df['vendedor'] = df.filter(regex='Vendedor').iloc[:, 0].fillna('SEM_VENDEDOR').astype(str)
             df['cliente'] = df.filter(regex='Nome|Cliente').iloc[:, 0].fillna('SEM_CLIENTE').astype(str)
             
@@ -98,7 +114,7 @@ def process_uploaded_file(uploaded_file):
                 if n_anuladas > 0:
                     st.caption(f"🗑️ **{n_anuladas}** anulações removidas")
             
-            st.caption(f"📊 **{len(df_clean)}** vendas líquidas válidas | Coluna valor: **{valor_col}**")
+            st.caption(f"📊 **{len(df_clean)}** vendas líquidas válidas | Coluna valor: **{valor_col}** | Coluna documento: **{doc_col or 'N/A'}**")
             return df_clean[['data_venda', 'FAMILIA', 'documento', 'vendedor', 'cliente', 'venda_liquida']]
             
         except Exception as e:
@@ -154,7 +170,7 @@ def main():
             (df_filtered["data_venda"].dt.date <= end)
         ]
     
-    # Documentos (todos presentes por default)
+    # ✅ Documentos filtrados da coluna "documento" (que agora vem da "Doc.")
     doc_opts = sorted(df_filtered["documento"].dropna().unique())
     default_docs = [d for d in ['FT', 'FTS', 'NC', 'FTP'] if d in doc_opts]
     selected_docs = st.sidebar.multiselect("📄 Documentos", doc_opts, default=default_docs)
@@ -165,7 +181,7 @@ def main():
     vendedor_opts = sorted(df_filtered["vendedor"].dropna().unique())
     selected_vendedores = st.sidebar.multiselect("👨‍💼 Vendedor", vendedor_opts)
     
-    # Aplica filtros
+    # ✅ Aplica filtros corretamente na coluna "documento"
     if selected_docs:
         df_filtered = df_filtered[df_filtered["documento"].isin(selected_docs)]
     if selected_familia:
@@ -173,6 +189,7 @@ def main():
     if selected_vendedores:
         df_filtered = df_filtered[df_filtered["vendedor"].isin(selected_vendedores)]
 
+    # Resto do código permanece igual...
     # =============================================================================
     # KPIs
     # =============================================================================
@@ -200,7 +217,7 @@ def main():
         st.metric("🎯 Ticket Médio", f"€{ticket_medio:.2f}")
 
     # =============================================================================
-    # VISUALIZAÇÕES
+    # VISUALIZAÇÕES (mantidas iguais)
     # =============================================================================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📈 Evolução Temporal", 
