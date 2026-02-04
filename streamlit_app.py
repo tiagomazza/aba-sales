@@ -26,13 +26,17 @@ def process_uploaded_file(uploaded_file):
             df['cliente'] = df['Nome [Clientes]'].fillna('SEM_CLIENTE').astype(str)
             df['venda_bruta'] = pd.to_numeric(df['Valor [Documentos GC Lin]'].astype(str).str.replace(',', '.').str.replace('€', ''), errors='coerce')
             
-            # Valor líquido (NC negativo)
             def valor_liquido(row):
                 if pd.isna(row['venda_bruta']):
                     return 0
-                if 'NC' in str(row['documento']).upper():
+                
+                doc = str(row['documento']).upper()
+                debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE'}
+                
+                if doc in debitos:
                     return -row['venda_bruta']
                 return row['venda_bruta']
+
             
             df['venda_liquida'] = df.apply(valor_liquido, axis=1)
             
