@@ -3,11 +3,16 @@ import pandas as pd
 import plotly.express as px
 import io
 from datetime import datetime
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+import os
 
 st.set_page_config(page_title="Vendas Líquidas", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
-# Senha para acesso (mude aqui!)
-SENHA_CORRETA = "admin123"
+# ID da sua pasta (já configurado!)
+ID_PASTA_DRIVE = "1gTZfcpQLdwhhuTJO3Ls0xxWHyOAo4X1C"
+SENHA_CORRETA = "admin2026"  # Mude se quiser!
 
 def format_pt(value):
     """Formata números PT-PT: 1.234,56"""
@@ -29,9 +34,13 @@ def valor_liquido(row):
     return row['venda_bruta']
 
 def processar_csv(conteudo):
-    """Processa CSV de upload ou arquivo"""
+    """Processa qualquer CSV (Drive ou upload)"""
     try:
-        content = conteudo.read().decode('latin1') if hasattr(conteudo, 'read') else conteudo.decode('latin1')
+        if isinstance(conteudo, bytes):
+            content = conteudo.decode('latin1')
+        else:
+            content = conteudo.read().decode('latin1') if hasattr(conteudo, 'read') else conteudo.decode('latin1')
+        
         lines = content.split('\n')
         data_lines = [line for line in lines[1:] if line.strip() and not line.startswith('sep=')]
         csv_content = '\n'.join(data_lines)
@@ -64,48 +73,105 @@ def processar_csv(conteudo):
         
         return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'valor_vendido']]
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro processamento: {e}")
         return pd.DataFrame()
+
+@st.cache_resource(ttl=3600)
+def conectar_drive():
+    """Conecta Google Drive API"""
+    creds = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=['https://www.googleapis.com/auth/drive.readonly']
+    )
+    return build('drive', 'v3', credentials=creds)
+
+def listar_csvs_drive(service):
+    """Lista CSVs da pasta 1gTZfcpQLdwhhuTJO3Ls0xxWHyOAo4X1C"""
+    results = service.files().list(
+        q=f"'{ID_PASTA_DRIVE}' in parents and name contains '.csv' and trashed=false",
+        fields="files(id, name, size)").execute()
+    return results.get('files', [])
+
+def baixar_csv_drive(service, file_id):
+    """Baixa CSV específico"""
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    fh.seek(0)
+    return fh
 
 def main():
     st.title("📊 Dashboard Vendas Líquidas")
+    st.markdown("**Pasta Drive configurada:** `1gTZfcpQLdwhhuTJO3Ls0xxWHyOAo4X1C`")
     
-    st.sidebar.header("📁 Upload de Dados")
+    # Sidebar
+    st.sidebar.header("📁 Carregar Dados")
     
-    # Upload múltiplos arquivos
-    uploaded_files = st.sidebar.file_uploader("Escolha CSV(s)", type="csv", accept_multiple_files=True)
-    
-    # Botão senha (simula "Drive")
-    st.sidebar.markdown("---")
-    senha = st.sidebar.text_input("🔐 Senha Admin:", type="password")
-    if st.sidebar.button("🚀 Modo Admin"):
-        if senha == SENHA_CORRETA:
-            st.sidebar.success("✅ Admin ativo!")
-            st.session_state.admin = True
-            st.rerun()
-        else:
-            st.sidebar.error("❌ Senha errada!")
-    
-    df = pd.DataFrame()
-    
-    if uploaded_files:
-        dfs = []
-        for file in uploaded_files:
-            df_temp = processar_csv(file)
-            if not df_temp.empty:
-                dfs.append(df_temp)
-                st.sidebar.info(f"✅ {file.name}")
+    # Opção 1: Drive (principal)
+    senha = st.sidebar.text_input("🔐 Senha:", type="password")
+    if st.sidebar.button("🚀 Carregar do Drive", use_container_width=True):
+        if senha != SENHA_CORRETA:
+            st.sidebar.error("❌ Senha incorreta!")
+            st.stop()
         
-        if dfs:
-            df = pd.concat(dfs, ignore_index=True)
+        try:
+            with st.spinner("🔄 Conectando Drive..."):
+                service = conectar_drive()
+                csvs = listar_csvs_drive(service)
+                
+                if not csvs:
+                    st.error("❌ Nenhum CSV encontrado na pasta!")
+                    st.stop()
+                
+                st.success(f"📂 Encontrados {len(csvs)} CSVs")
+                
+                dfs = []
+                progress_bar = st.progress(0)
+                for i, csv_file in enumerate(csvs):
+                    nome = csv_file['name']
+                    st.info(f"📥 {nome}...")
+                    
+                    conteudo = baixar_csv_drive(service, csv_file['id'])
+                    df_temp = processar_csv(conteudo)
+                    
+                    if not df_temp.empty:
+                        dfs.append(df_temp)
+                    
+                    progress_bar.progress((i + 1) / len(csvs))
+                
+                progress_bar.empty()
+                
+                if dfs:
+                    df = pd.concat(dfs, ignore_index=True)
+                    st.session_state.df = df
+                    st.sidebar.success(f"✅ {len(dfs)} arquivos | {len(df):,} linhas")
+                    st.rerun()
+                else:
+                    st.error("❌ Nenhum dado válido!")
+                    st.stop()
+                    
+        except Exception as e:
+            st.error(f"❌ Erro Drive: {e}")
+            st.info("👉 Verifique: Service Account tem acesso à pasta?")
     
-    if df.empty:
-        st.info("👈 **Carregue um ou mais CSVs**")
+    # Opção 2: Upload manual (fallback)
+    elif st.sidebar.file_uploader("📁 Ou faça upload:", type="csv", accept_multiple_files=True):
+        uploaded_files = st.sidebar.file_uploader("CSV", type="csv", accept_multiple_files=True)
+        if uploaded_files:
+            dfs = [processar_csv(f) for f in uploaded_files]
+            df = pd.concat([d for d in dfs if not d.empty], ignore_index=True)
+            st.session_state.df = df
+            st.rerun()
+    else:
+        st.info("👈 Digite senha e clique 'Carregar do Drive'")
         st.stop()
     
-    st.session_state.df = df
-    st.sidebar.success(f"📊 {len(df):,} linhas carregadas")
-
+    # Dados carregados - continua igual...
+    df = st.session_state.df
+    
     # FILTROS
     st.sidebar.header("🎚️ Filtros")
     today = datetime.now()
@@ -138,24 +204,25 @@ def main():
     vendedores = df_filtered['vendedor'].nunique()
     ticket = total / len(df_filtered) if len(df_filtered) else 0
     
-    with col1: st.metric("💰 Total Vendido", f"€{format_pt(total)}")
+    with col1: st.metric("💰 Total", f"€{format_pt(total)}")
     with col2: st.metric("👥 Clientes", f"{clientes:,}")
     with col3: st.metric("🏷️ Famílias", familias)
     with col4: st.metric("👨‍💼 Vendedores", vendedores)
-    with col5: st.metric("💳 Ticket Médio", f"€{format_pt(ticket)}")
+    with col5: st.metric("💳 Ticket", f"€{format_pt(ticket)}")
 
-    # Gráficos
-    tipo_grafico = st.sidebar.selectbox("📊 Principal", ["Valor Vendido", "Clientes"])
+    # GRÁFICOS (igual ao anterior)
+    tipo = st.sidebar.selectbox("📊 Principal", ["Valor Vendido", "Clientes"])
     
     tabs = st.tabs(["📈 Diárias", "🏷️ Famílias", "👨‍💼 Vendedores", "👥 Clientes", "📊 Pivot"])
     
     with tabs[0]:
-        if tipo_grafico == "Valor Vendido":
+        if tipo == "Valor Vendido":
             diario = df_filtered.groupby(df_filtered['data'].dt.date)['valor_vendido'].sum().reset_index()
-            fig = px.bar(diario, x='data', y='valor_vendido', title="Vendas Diárias")
+            fig = px.bar(diario, x='data', y='valor_vendido', title="Vendas Diárias", text='valor_vendido')
         else:
             diario = df_filtered.groupby(df_filtered['data'].dt.date)['cliente'].nunique().reset_index()
-            fig = px.bar(diario, x='data', y='cliente', title="Clientes Diários")
+            fig = px.bar(diario, x='data', y='cliente', title="Clientes Diários", text='cliente')
+        fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
         st.plotly_chart(fig, use_container_width=True)
     
     with tabs[1]:
@@ -186,8 +253,8 @@ def main():
 
     # Download
     st.markdown("### 📥 Exportar")
-    csv = df_filtered.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("CSV Completo", csv, f"vendas_{datetime.now().strftime('%Y%m%d')}.csv")
+    csv_data = df_filtered.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("📊 CSV Completo", csv_data, f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
 
 if __name__ == "__main__":
     main()
