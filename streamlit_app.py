@@ -28,29 +28,57 @@ def valor_liquido(row):
     debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE', 'ND'}
     return -row['venda_bruta'] if doc in debitos else row['venda_bruta']
 
+# SUBSTITUI TEMPORARIAMENTE a função obter_data_upload_github por esta VERSÃO DEBUG:
+
 def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
-    """🔥 VERSÃO ROBUSTA - BUSCA ÚLTIMO COMMIT DO ARQUIVO"""
+    """🔍 DEBUG COMPLETO - MOSTRA TUDO"""
+    st.info(f"🔍 DEBUG {nome_arquivo}")
+    st.write(f"Repo: `{repo_nome}`")
+    st.write(f"Token: {'✅' if token else '❌ FALTA'}")
+    
     try:
-        if not token: return None
+        if not token:
+            st.error("❌ SEM TOKEN")
+            return None
         
         g = Github(token)
         repo = g.get_repo(repo_nome)
+        st.success("✅ Repo OK")
         
-        # MÉTODO 1: get_contents
+        # TESTE 1: Conteúdo direto
         try:
             conteudo = repo.get_contents(nome_arquivo)
-            if conteudo: 
-                return conteudo.last_commit.commit.committer.date.replace(tzinfo=None)
-        except: pass
+            st.success(f"✅ get_contents OK: {conteudo.name}")
+            if hasattr(conteudo, 'last_commit'):
+                data = conteudo.last_commit.commit.committer.date.replace(tzinfo=None)
+                st.balloons()
+                return data
+        except Exception as e1:
+            st.warning(f"⚠️ get_contents: {str(e1)[:100]}")
         
-        # MÉTODO 2: commits por path (MAIS CONFIÁVEL)
+        # TESTE 2: Commits por path
         commits = repo.get_commits(path=nome_arquivo, per_page=1)
+        st.write(f"Commits encontrados: {commits.totalCount}")
         if commits.totalCount > 0:
-            return commits[0].commit.committer.date.replace(tzinfo=None)
-            
+            ultimo = commits[0]
+            data = ultimo.commit.committer.date.replace(tzinfo=None)
+            st.success(f"✅ Commit: {data}")
+            return data
+        else:
+            st.error("❌ Arquivo não encontrado nos commits")
+        
+        # TESTE 3: Lista TODOS arquivos raiz
+        st.subheader("📂 Arquivos no repo (raiz):")
+        conteudos = repo.get_contents("")
+        for c in conteudos[:10]:  # Primeiros 10
+            st.write(f"- {c.name} ({type(c)})")
+        
         return None
+        
     except Exception as e:
+        st.error(f"💥 ERRO FINAL: {type(e).__name__}: {str(e)}")
         return None
+
 
 def processar_csv(conteudo, nome_arquivo=""):
     try:
