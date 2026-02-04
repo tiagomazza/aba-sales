@@ -5,6 +5,11 @@ import io
 from datetime import datetime
 import os
 
+# No topo do teu código Streamlit, altera estas linhas:
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")  
+GITHUB_REPO = "tiagomazza/aba-sales"  # ← O TEU REPO!
+
+
 st.set_page_config(page_title="Vendas Líquidas", page_icon="📊",
                    layout="wide", initial_sidebar_state="expanded")
 
