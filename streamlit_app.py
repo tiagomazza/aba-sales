@@ -97,14 +97,13 @@ def listar_csvs_pasta_local(pasta):
         if os.path.isfile(os.path.join(pasta, f)) and f.lower().endswith('.csv')
     ]
     return arquivos
-
 def carregar_csvs_pasta_local(pasta):
-    """Lê e processa todos os CSV de uma pasta local + CAPTURA DATAS DE UPLOAD"""
     arquivos = listar_csvs_pasta_local(pasta)
     if not arquivos:
         return [], pd.DataFrame(), []
 
-    datas_upload = []  # ← NOVO: lista de datas
+    datas_upload = []
+    tamanhos_linhas = []  # ✅ Lista já preenchida corretamente
     dfs = []
     progress_bar = st.progress(0)
     
@@ -112,24 +111,25 @@ def carregar_csvs_pasta_local(pasta):
         st.info(f"📥 {nome}...")
         caminho = os.path.join(pasta, nome)
         try:
-            # ← NOVO: Captura data de última modificação (upload no GitHub)
-            timestamp_upload = os.path.getmtime(caminho)  # [web:44][web:50]
+            timestamp_upload = os.path.getmtime(caminho)
             datas_upload.append(timestamp_upload)
             
             with open(caminho, 'rb') as f:
                 conteudo = f.read()
             df_temp = processar_csv(conteudo)
+            tamanhos_linhas.append(len(df_temp) if not df_temp.empty else 0)  # ✅ Correto aqui
             if not df_temp.empty:
                 dfs.append(df_temp)
         except Exception as e:
             st.warning(f"Erro ao ler {nome}: {e}")
+            tamanhos_linhas.append(0)
         progress_bar.progress((i + 1) / len(arquivos))
 
     progress_bar.empty()
     if dfs:
         df = pd.concat(dfs, ignore_index=True)
-        return arquivos, df, datas_upload
-    return arquivos, pd.DataFrame(), []
+        return arquivos, df, datas_upload, tamanhos_linhas
+    return arquivos, pd.DataFrame(), [], []
 
 def main():
     st.title("📊 Dashboard Vendas Líquidas")
