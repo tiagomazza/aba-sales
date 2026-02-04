@@ -155,14 +155,16 @@ def main():
 
         # ← NOVO: Tabela com arquivos + datas de upload
         st.success(f"✅ {len(arquivos)} arquivos carregados | {len(df):,} linhas")
+        st.success(f"✅ {len(arquivos)} arquivos | {len(df):,} linhas totais")
         datas_formatadas = format_data_upload(datas_upload_raw)
+
         df_status = pd.DataFrame({
             'Arquivo': arquivos,
-            'Linhas carregadas': [len(df_temp) for df_temp in [processar_csv(open(os.path.join(PASTA_CSV_LOCAL, f), 'rb').read()) for f in arquivos] if not df_temp.empty else 0],
+            'Linhas carregadas': tamanhos_linhas,  # ✅ CORRIGIDO
             'Último upload GitHub': datas_formatadas
         })
         st.dataframe(df_status, use_container_width=True)
-        
+
         st.session_state.df = df
         st.session_state.arquivos = arquivos
         st.session_state.ultimo_upload = max(datas_upload_raw) if datas_upload_raw else None
