@@ -11,9 +11,9 @@ def process_uploaded_file(uploaded_file):
     if uploaded_file is not None:
         try:
             content = uploaded_file.read().decode('latin1')
-            lines = content.split('\n')
+            lines = content.split('\\n')
             data_lines = [line for line in lines[1:] if line.strip() and not line.startswith('sep=')]
-            csv_content = '\n'.join(data_lines)
+            csv_content = '\\n'.join(data_lines)
             
             df = pd.read_csv(io.StringIO(csv_content), sep=',', quotechar='"', encoding='latin1', on_bad_lines='skip', engine='python')
             df.columns = df.columns.str.strip().str.replace('"', '')
@@ -23,20 +23,11 @@ def process_uploaded_file(uploaded_file):
             df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA').astype(str)
             df['documento'] = df['Doc.'].fillna('').astype(str)
             df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
-            df['cliente'] = df['Nome [Clientes]'].fillna('SEM_CLIENTE').astype(str)
-            df['venda_bruta'] = pd.to_numeric(df['Valor [Documentos GC Lin]'].astype(str).str.replace(',', '.').str.replace('€', ''), errors='coerce')
             
-            def valor_liquido(row):
-                if pd.isna(row['venda_bruta']):
-                    return 0
-                
-                doc = str(row['documento']).upper()
-                debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE'}
-                
-                if doc in debitos:
-                    return -row['venda_bruta']
-                return row['venda_bruta']
-
+            # 👈 NOVA ALTERAÇÃO AQUI:
+            df['cliente'] = df['Terceiro'].fillna('') + ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE')
+            
+            df['venda_bruta'] = pd.to_numeric(df['Valor [Documentos GC Lin]'].astype(str).str.replace(',', '.').str.replace('€', ''), errors='coerce')
             
             df['venda_liquida'] = df.apply(valor_liquido, axis=1)
             
