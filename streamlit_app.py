@@ -4,18 +4,16 @@ import plotly.express as px
 import io
 from datetime import datetime
 import os
-
-# No topo do teu código Streamlit, altera estas linhas:
-GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")  
-GITHUB_REPO = "tiagomazza/aba-sales"  # ← O TEU REPO!
-
+from github import Github  # ← PARA DATAS GITHUB
 
 st.set_page_config(page_title="Vendas Líquidas", page_icon="📊",
                    layout="wide", initial_sidebar_state="expanded")
 
-# Pasta local dentro do projeto onde estão os CSV
-PASTA_CSV_LOCAL = "data"   # muda se usares outro nome
-SENHA_CORRETA = "admin2026"  # Mude se quiser!
+# CONFIGURAÇÕES
+PASTA_CSV_LOCAL = "data"
+SENHA_CORRETA = "admin2026"
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
+GITHUB_REPO = "tiagomazza/aba-sales"  # TEU REPO!
 
 def format_pt(value):
     """Formata números PT-PT: 1.234,56"""
@@ -37,27 +35,22 @@ def valor_liquido(row):
     return row['venda_bruta']
 
 def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
-    """
-    Obtém a data de upload/commit do arquivo CSV no GitHub
-    Retorna: datetime ou None se não encontrar
-    """
+    """Obtém data de upload/commit do GitHub"""
     try:
         if not token:
             return None
-        
         g = Github(token)
         repo = g.get_repo(repo_nome)
         conteudo = repo.get_contents(nome_arquivo)
-        
         if conteudo:
             data_commit = conteudo.last_commit.commit.committer.date
-            return data_commit.replace(tzinfo=None)  # Remove timezone
+            return data_commit.replace(tzinfo=None)
         return None
     except Exception:
         return None
 
-def processar_csv(conteudo):
-    """Processa qualquer CSV (local ou upload)"""
+def processar_csv(conteudo, nome_arquivo=""):
+    """Processa CSV com nome do arquivo"""
     try:
         if isinstance(conteudo, bytes):
             content = conteudo.decode('latin1')
@@ -79,17 +72,13 @@ def processar_csv(conteudo):
 
         df['cliente'] = (
             df.get('Terceiro', pd.Series([''] * len(df)))
-            .fillna('')
-            .astype(str)
-            .str.replace('=', '')
-            .str.replace('"', '')
+            .fillna('').astype(str).str.replace('=', '').str.replace('"', '')
             + ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE')
         )
 
         df['venda_bruta'] = pd.to_numeric(
             df['Valor [Documentos GC Lin]'].astype(str)
-            .str.replace(',', '.')
-            .str.replace('€', ''),
+            .str.replace(',', '.').str.replace('€', ''),
             errors='coerce'
         )
 
@@ -103,23 +92,21 @@ def processar_csv(conteudo):
                        (df_clean['Motivo de anulação do documento'] != '')
             df_clean = df_clean[~anuladas].copy()
 
-        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'valor_vendido']]
+        df_clean['arquivo'] = nome_arquivo  # ← RASTREAMENTO
+        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'valor_vendido', 'arquivo']]
     except Exception as e:
         st.error(f"Erro processamento: {e}")
         return pd.DataFrame()
 
 def listar_csvs_pasta_local(pasta):
-    """Lista CSVs numa pasta local do projeto"""
+    """Lista CSVs na pasta local"""
     if not os.path.isdir(pasta):
         return []
-    arquivos = [
-        f for f in os.listdir(pasta)
-        if os.path.isfile(os.path.join(pasta, f)) and f.lower().endswith('.csv')
-    ]  # [web:17][web:14]
-    return arquivos
+    return [f for f in os.listdir(pasta) 
+            if os.path.isfile(os.path.join(pasta, f)) and f.lower().endswith('.csv')]
 
 def carregar_csvs_pasta_local(pasta):
-    """Lê e processa todos os CSV de uma pasta local"""
+    """Carrega TODOS CSVs da pasta + datas GitHub"""
     arquivos = listar_csvs_pasta_local(pasta)
     if not arquivos:
         return [], pd.DataFrame(), {}
@@ -127,7 +114,7 @@ def carregar_csvs_pasta_local(pasta):
     dfs = []
     datas_upload = {}
     progress_bar = st.progress(0)
-    
+
     for i, nome in enumerate(arquivos):
         st.info(f"📥 {nome}...")
         caminho = os.path.join(pasta, nome)
@@ -135,18 +122,18 @@ def carregar_csvs_pasta_local(pasta):
             with open(caminho, 'rb') as f:
                 conteudo = f.read()
             
-            # Obtém data de upload do GitHub
+            # ← BUSCA DATA GITHUB
             data_upload = obter_data_upload_github(nome, GITHUB_REPO, GITHUB_TOKEN)
             datas_upload[nome] = data_upload
-            st.info(f"📅 Upload GitHub: {data_upload.strftime('%d/%m/%Y %H:%M') if data_upload else 'N/D'}")
+            st.info(f"📅 GitHub: {data_upload.strftime('%d/%m %H:%M') if data_upload else 'N/D'}")
             
             df_temp = processar_csv(conteudo, nome)
             if not df_temp.empty:
                 dfs.append(df_temp)
         except Exception as e:
-            st.warning(f"Erro ao ler {nome}: {e}")
+            st.warning(f"Erro {nome}: {e}")
         progress_bar.progress((i + 1) / len(arquivos))
-
+    
     progress_bar.empty()
 
     if dfs:
@@ -156,67 +143,84 @@ def carregar_csvs_pasta_local(pasta):
 
 def main():
     st.title("📊 Dashboard Vendas Líquidas")
-    st.markdown(f"**Pasta local configurada:** `{PASTA_CSV_LOCAL}/`")
+    st.markdown(f"**Pasta:** `{PASTA_CSV_LOCAL}/`")
+    
+    # INFO GITHUB
+    if GITHUB_TOKEN and GITHUB_REPO:
+        st.caption(f"🔗 GitHub: {GITHUB_REPO}")
+    else:
+        st.caption("⚠️ Adic. GITHUB_TOKEN em secrets.toml")
 
-    # Sidebar
+    # SIDEBAR
     st.sidebar.header("📁 Carregar Dados")
 
-    # Opção 1: Pasta local do projeto (principal, protegida por senha)
+    # PASTA LOCAL (PRINCIPAL)
     senha = st.sidebar.text_input("🔐 Senha:", type="password")
-    if st.sidebar.button("🚀 Carregar da pasta do projeto", use_container_width=True):
+    if st.sidebar.button("🚀 Pasta projeto", use_container_width=True):
         if senha != SENHA_CORRETA:
-            st.sidebar.error("❌ Senha incorreta!")
+            st.sidebar.error("❌ Senha errada!")
             st.stop()
-
-        arquivos, df = carregar_csvs_pasta_local(PASTA_CSV_LOCAL)
+        
+        arquivos, df, datas_upload = carregar_csvs_pasta_local(PASTA_CSV_LOCAL)
         if not arquivos:
-            st.error(f"❌ Nenhum CSV encontrado em `{PASTA_CSV_LOCAL}/`")
+            st.error(f"❌ Sem CSV em `{PASTA_CSV_LOCAL}/`")
             st.stop()
         if df.empty:
-            st.error("❌ Nenhum dado válido nos CSV!")
+            st.error("❌ Sem dados válidos!")
             st.stop()
 
-        st.success(f"📂 Encontrados {len(arquivos)} CSV(s)")
+        st.success(f"✅ {len(arquivos)} CSV | {len(df):,} linhas")
         st.session_state.df = df
-        st.sidebar.success(f"✅ {len(arquivos)} arquivos | {len(df):,} linhas")
+        st.session_state.arquivos = arquivos
+        st.session_state.datas_upload = datas_upload
+        st.sidebar.success(f"✅ {len(arquivos)} | {len(df):,}")
         st.rerun()
 
-    # Opção 2: Upload manual (fallback)
-    uploaded_files = st.sidebar.file_uploader(
-        "📁 Ou faça upload:", type="csv", accept_multiple_files=True
-    )
+    # UPLOAD MANUAL
+    uploaded_files = st.sidebar.file_uploader("📁 Upload:", type="csv", accept_multiple_files=True)
     if uploaded_files:
-        dfs = [processar_csv(f) for f in uploaded_files]
+        dfs = [processar_csv(f, f.name) for f in uploaded_files]
         dfs_validos = [d for d in dfs if not d.empty]
-        if not dfs_validos:
-            st.error("❌ Nenhum dado válido nos ficheiros enviados!")
-            st.stop()
-        df = pd.concat(dfs_validos, ignore_index=True)
-        st.session_state.df = df
-        st.sidebar.success(f"✅ {len(dfs_validos)} arquivos | {len(df):,} linhas")
-        st.rerun()
+        if dfs_validos:
+            df = pd.concat(dfs_validos, ignore_index=True)
+            st.session_state.df = df
+            st.session_state.arquivos = [f.name for f in uploaded_files]
+            st.session_state.datas_upload = {}
+            st.sidebar.success(f"✅ {len(dfs_validos)} | {len(df):,}")
+            st.rerun()
+        else:
+            st.error("❌ Sem dados válidos!")
 
     if "df" not in st.session_state:
-        st.info("👈 Digite a senha e clique 'Carregar da pasta do projeto' ou faça upload de CSV.")
+        st.info("👈 Senha → 'Pasta projeto' ou upload CSV")
         st.stop()
 
-    # Dados carregados
+    # DADOS CARREGADOS
     df = st.session_state.df
+    datas_upload = st.session_state.get('datas_upload', {})
+
+    # 📅 DATAS UPLOAD GITHUB
+    st.markdown("### 📅 Datas GitHub")
+    if datas_upload:
+        cols = st.columns(min(4, len(datas_upload)))
+        for i, (arq, data) in enumerate(datas_upload.items()):
+            with cols[i % len(cols)]:
+                st.metric(f"📄 {arq[:20]}...", 
+                         f"{data.strftime('%d/%m %H:%M') if data else 'N/D'}")
+    else:
+        st.info("ℹ️ Sem token GitHub")
 
     # FILTROS
     st.sidebar.header("🎚️ Filtros")
     today = datetime.now()
     first_day = today.replace(day=1)
-
-    date_range = st.sidebar.date_input("Período", value=(first_day.date(), today.date()))
+    date_range = st.sidebar.date_input("Período", (first_day.date(), today.date()))
 
     df_filtered = df.copy()
     if len(date_range) == 2:
         start, end = date_range
-        df_filtered = df_filtered[
-            (df_filtered["data"].dt.date >= start) &
-            (df_filtered["data"].dt.date <= end)
-        ]
+        df_filtered = df_filtered[(df_filtered["data"].dt.date >= start) & 
+                                 (df_filtered["data"].dt.date <= end)]
 
     familia_opts = sorted(df_filtered["FAMILIA"].dropna().unique())
     selected_familia = st.sidebar.multiselect("Família", familia_opts)
@@ -232,27 +236,20 @@ def main():
     # KPIs
     st.markdown("### 🏆 KPIs")
     col1, col2, col3, col4, col5 = st.columns(5)
-
     total = df_filtered['valor_vendido'].sum()
     clientes = df_filtered['cliente'].nunique()
     familias = df_filtered['FAMILIA'].nunique()
     vendedores = df_filtered['vendedor'].nunique()
     ticket = total / len(df_filtered) if len(df_filtered) else 0
 
-    with col1:
-        st.metric("💰 Total", f"€{format_pt(total)}")
-    with col2:
-        st.metric("👥 Clientes", f"{clientes:,}")
-    with col3:
-        st.metric("🏷️ Famílias", familias)
-    with col4:
-        st.metric("👨‍💼 Vendedores", vendedores)
-    with col5:
-        st.metric("💳 Ticket", f"€{format_pt(ticket)}")
+    with col1: st.metric("💰 Total", f"€{format_pt(total)}")
+    with col2: st.metric("👥 Clientes", f"{clientes:,}")
+    with col3: st.metric("🏷️ Famílias", familias)
+    with col4: st.metric("👨‍💼 Vendedores", vendedores)
+    with col5: st.metric("💳 Ticket", f"€{format_pt(ticket)}")
 
     # GRÁFICOS
     tipo = st.sidebar.selectbox("📊 Principal", ["Valor Vendido", "Clientes"])
-
     tabs = st.tabs(["📈 Diárias", "🏷️ Famílias", "👨‍💼 Vendedores", "👥 Clientes", "📊 Pivot"])
 
     with tabs[0]:
@@ -288,18 +285,13 @@ def main():
         if coluna == 'Nenhuma':
             pivot = df_filtered.pivot_table(index=linha, values='valor_vendido', aggfunc=func)
         else:
-            pivot = df_filtered.pivot_table(index=linha, columns=coluna,
-                                            values='valor_vendido', aggfunc=func)
+            pivot = df_filtered.pivot_table(index=linha, columns=coluna, values='valor_vendido', aggfunc=func)
         st.dataframe(pivot.style.format(format_pt))
 
-    # Download
+    # DOWNLOAD
     st.markdown("### 📥 Exportar")
     csv_data = df_filtered.to_csv(index=False).encode('utf-8-sig')
-    st.download_button(
-        "📊 CSV Completo",
-        csv_data,
-        f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-    )
+    st.download_button("📊 CSV", csv_data, f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
 
 if __name__ == "__main__":
     main()
