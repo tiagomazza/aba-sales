@@ -38,9 +38,10 @@ def process_uploaded_file(uploaded_file):
             df['documento'] = df['Doc.'].fillna('').astype(str)
             df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
             
-            # 👈 CLIENTE: Terceiro - Nome
-            df['cliente'] = (df.get('Terceiro', pd.Series(['']*len(df))).fillna('') + 
-                           ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE'))
+            df['cliente'] = (df.get('Terceiro', pd.Series(['']*len(df)))
+                             .fillna('').astype(str)
+                             .str.replace('=', '').str.replace('"', '') + 
+                             ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE'))
             
             df['venda_bruta'] = pd.to_numeric(df['Valor [Documentos GC Lin]'].astype(str)
                                             .str.replace(',', '.').str.replace('€', ''), errors='coerce')
