@@ -6,7 +6,6 @@ from datetime import datetime
 
 st.set_page_config(page_title="Vendas Líquidas", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
-# 👈 FUNÇÃO DE DÉBITO CORRIGIDA
 def valor_liquido(row):
     """Calcula venda líquida: negativos para documentos de débito"""
     if pd.isna(row['venda_bruta']):
@@ -68,13 +67,13 @@ def process_uploaded_file(uploaded_file):
     return pd.DataFrame()
 
 def main():
-    st.title("💰 Vendas Líquidas (sem Anulações)")
+    st.title("📊 Vendas")
     
     st.sidebar.header("📁 Upload")
     uploaded_file = st.sidebar.file_uploader("CSV", type="csv")
     
     if uploaded_file is None:
-        st.info("👆 Carregue arquivo")
+        st.info("👈🏾 Carregue arquivo")
         st.stop()
     
     df = process_uploaded_file(uploaded_file)
@@ -86,7 +85,7 @@ def main():
     st.sidebar.success(f"✅ {len(df):,} vendas líquidas (sem anulações)")
 
     # FILTROS
-    st.sidebar.header("🔍 Filtros")
+    st.sidebar.header("🎚️ Filtros")
     today = datetime.now()
     first_day = today.replace(day=1)
     
@@ -116,7 +115,7 @@ def main():
         df_filtered = df_filtered[df_filtered["vendedor"].isin(selected_vendedores)]
 
     # KPIs
-    st.markdown("### 📊 KPIs (sem anulações)")
+    st.markdown("### 🏆 KPIs")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     valor_liquido_total = df_filtered['venda_liquida'].sum()
@@ -134,7 +133,7 @@ def main():
     with col6: st.metric("Ticket Médio", f"€{ticket:.2f}")
 
     # GRÁFICOS
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Evolução", "🏆 Família", "👥 Vendedor", "👨‍👩 Cliente", "🔄 Pivot"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Evolução", "Ⓜ️ Família", "👥 Vendedor", "👨‍👩 Cliente", "🔄 Pivot"])
     
     with tab1:
         vendas_dia = df_filtered.groupby(df_filtered['data_venda'].dt.date)['venda_liquida'].sum().reset_index()
@@ -168,7 +167,7 @@ def main():
         st.dataframe(pivot.style.format("{:,.2f}"))
 
     # Tabela + Download
-    st.markdown("### 📋 Dados (sem anulações)")
+    st.markdown("### 📋 Dados")
     col1, col2 = st.columns([4,1])
     with col1:
         st.dataframe(df_filtered.head(200), use_container_width=True)
