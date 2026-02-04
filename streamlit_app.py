@@ -31,6 +31,26 @@ def valor_liquido(row):
         return -row['venda_bruta']
     return row['venda_bruta']
 
+def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
+    """
+    Obtém a data de upload/commit do arquivo CSV no GitHub
+    Retorna: datetime ou None se não encontrar
+    """
+    try:
+        if not token:
+            return None
+        
+        g = Github(token)
+        repo = g.get_repo(repo_nome)
+        conteudo = repo.get_contents(nome_arquivo)
+        
+        if conteudo:
+            data_commit = conteudo.last_commit.commit.committer.date
+            return data_commit.replace(tzinfo=None)  # Remove timezone
+        return None
+    except Exception:
+        return None
+
 def processar_csv(conteudo):
     """Processa qualquer CSV (local ou upload)"""
     try:
