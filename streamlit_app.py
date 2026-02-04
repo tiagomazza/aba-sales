@@ -89,7 +89,7 @@ def main():
                                  (df_filtered["data_venda"].dt.date <= end)]
     
     doc_opts = sorted(df_filtered["documento"].dropna().unique())
-    default_docs = [d for d in ['FT', 'FTS', 'NC', 'FTP'] if d in doc_opts]
+    default_docs = [d for d in ['FT', 'FTM', 'FTP', 'FTS', 'NC', 'NCA', 'NCM', 'NCS', 'ND', 'NFI'] if d in doc_opts]
     selected_docs = st.sidebar.multiselect("Documentos", doc_opts, default=default_docs)
     
     familia_opts = sorted(df_filtered["FAMILIA"].dropna().unique())
