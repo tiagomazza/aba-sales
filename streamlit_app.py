@@ -30,53 +30,74 @@ def valor_liquido(row):
 
 # SUBSTITUI TEMPORARIAMENTE a função obter_data_upload_github por esta VERSÃO DEBUG:
 
+# 🔥 DEBUG ULTRA COMPLETO - SUBSTITUI TODA a função obter_data_upload_github:
+
 def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
-    """🔍 DEBUG COMPLETO - MOSTRA TUDO"""
-    st.info(f"🔍 DEBUG {nome_arquivo}")
-    st.write(f"Repo: `{repo_nome}`")
-    st.write(f"Token: {'✅' if token else '❌ FALTA'}")
+    """🚨 DEBUG TOTAL - EXPLODE TUDO NA TELA"""
+    
+    # HEADER DEBUG
+    st.markdown("---")
+    st.markdown(f"### 🔍 **DEBUG COMPLETO: {nome_arquivo}**")
+    
+    st.code(f"""
+Repo: {repo_nome}
+Token existe: {bool(token)}
+Token len: {len(token) if token else 0}
+Arquivo: {nome_arquivo}
+    """)
+    
+    if not token:
+        st.error("🚫 **SEM TOKEN GITHUB** - Adic. em secrets.toml")
+        return None
     
     try:
-        if not token:
-            st.error("❌ SEM TOKEN")
-            return None
-        
+        st.info("🔄 Conectando GitHub...")
         g = Github(token)
         repo = g.get_repo(repo_nome)
-        st.success("✅ Repo OK")
+        st.success(f"✅ **REPO OK**: {repo.full_name} (branch: {repo.default_branch})")
         
-        # TESTE 1: Conteúdo direto
+        # 1. TESTA CAMINHO EXATO
+        st.subheader("**1. Procurando arquivo EXATO**")
         try:
             conteudo = repo.get_contents(nome_arquivo)
-            st.success(f"✅ get_contents OK: {conteudo.name}")
-            if hasattr(conteudo, 'last_commit'):
-                data = conteudo.last_commit.commit.committer.date.replace(tzinfo=None)
-                st.balloons()
-                return data
-        except Exception as e1:
-            st.warning(f"⚠️ get_contents: {str(e1)[:100]}")
+            st.success(f"✅ ENCONTRADO: {conteudo.name}")
+            st.json({"path": conteudo.path, "last_commit": str(conteudo.last_commit)})
+            return conteudo.last_commit.commit.committer.date.replace(tzinfo=None)
+        except Exception as e:
+            st.error(f"❌ NAO ENCONTRADO: {str(e)[:100]}")
         
-        # TESTE 2: Commits por path
-        commits = repo.get_commits(path=nome_arquivo, per_page=1)
-        st.write(f"Commits encontrados: {commits.totalCount}")
-        if commits.totalCount > 0:
-            ultimo = commits[0]
-            data = ultimo.commit.committer.date.replace(tzinfo=None)
-            st.success(f"✅ Commit: {data}")
-            return data
-        else:
-            st.error("❌ Arquivo não encontrado nos commits")
+        # 2. TESTA EM SUBPASTA data/
+        st.subheader("**2. Procurando em data/**")
+        caminho_data = f"data/{nome_arquivo}"
+        try:
+            conteudo = repo.get_contents(caminho_data)
+            st.success(f"✅ ENCONTRADO em data/: {conteudo.name}")
+            return conteudo.last_commit.commit.committer.date.replace(tzinfo=None)
+        except Exception as e:
+            st.error(f"❌ NAO em data/: {str(e)[:100]}")
         
-        # TESTE 3: Lista TODOS arquivos raiz
-        st.subheader("📂 Arquivos no repo (raiz):")
-        conteudos = repo.get_contents("")
-        for c in conteudos[:10]:  # Primeiros 10
-            st.write(f"- {c.name} ({type(c)})")
+        # 3. LISTA TODOS ARQUIVOS RAIZ
+        st.subheader("**3. ARQUIVOS NA RAIZ**")
+        try:
+            root_files = repo.get_contents("")
+            for item in root_files:
+                st.write(f"📁 {item.type}: {item.name} → {item.path}")
+        except Exception as e:
+            st.error(f"❌ Erro lista: {e}")
         
+        # 4. COMMITS RECENTES
+        st.subheader("**4. ÚLTIMOS COMMITS**")
+        commits = repo.get_commits(sha=repo.default_branch, per_page=5)
+        for c in commits:
+            st.write(f"🗓️ {c.commit.message[:50]} | {c.commit.committer.date.date()}")
+        
+        st.error("❌ ARQUIVO NÃO ENCONTRADO")
         return None
         
     except Exception as e:
-        st.error(f"💥 ERRO FINAL: {type(e).__name__}: {str(e)}")
+        st.error(f"💥 **ERRO CRÍTICO**: {type(e).__name__}: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return None
 
 
