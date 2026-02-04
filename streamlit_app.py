@@ -24,8 +24,7 @@ def process_uploaded_file(uploaded_file):
             df['documento'] = df['Doc.'].fillna('').astype(str)
             df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
             
-            # 👈 NOVA ALTERAÇÃO AQUI:
-            df['cliente'] = df['Terceiro'].fillna('') + ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE')
+            df['cliente'] = df['Nome [Clientes]'].fillna('SEM_CLIENTE').astype(str)
             
             df['venda_bruta'] = pd.to_numeric(df['Valor [Documentos GC Lin]'].astype(str).str.replace(',', '.').str.replace('€', ''), errors='coerce')
             
