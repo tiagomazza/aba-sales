@@ -117,17 +117,25 @@ def carregar_csvs_pasta_local(pasta):
     """Lê e processa todos os CSV de uma pasta local"""
     arquivos = listar_csvs_pasta_local(pasta)
     if not arquivos:
-        return [], pd.DataFrame()
+        return [], pd.DataFrame(), {}
 
     dfs = []
+    datas_upload = {}
     progress_bar = st.progress(0)
+    
     for i, nome in enumerate(arquivos):
         st.info(f"📥 {nome}...")
         caminho = os.path.join(pasta, nome)
         try:
             with open(caminho, 'rb') as f:
                 conteudo = f.read()
-            df_temp = processar_csv(conteudo)
+            
+            # Obtém data de upload do GitHub
+            data_upload = obter_data_upload_github(nome, GITHUB_REPO, GITHUB_TOKEN)
+            datas_upload[nome] = data_upload
+            st.info(f"📅 Upload GitHub: {data_upload.strftime('%d/%m/%Y %H:%M') if data_upload else 'N/D'}")
+            
+            df_temp = processar_csv(conteudo, nome)
             if not df_temp.empty:
                 dfs.append(df_temp)
         except Exception as e:
@@ -138,8 +146,8 @@ def carregar_csvs_pasta_local(pasta):
 
     if dfs:
         df = pd.concat(dfs, ignore_index=True)
-        return arquivos, df
-    return arquivos, pd.DataFrame()
+        return arquivos, df, datas_upload
+    return arquivos, pd.DataFrame(), {}
 
 def main():
     st.title("📊 Dashboard Vendas Líquidas")
