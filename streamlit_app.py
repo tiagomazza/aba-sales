@@ -3,12 +3,18 @@ import pandas as pd
 import plotly.express as px
 import io
 from datetime import datetime
-import locale
 
 st.set_page_config(page_title="Vendas Líquidas", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
-# Configuração locale PT-PT (milhares=., decimais=,)
-locale.setlocale(locale.LC_ALL, 'pt_PT.UTF-8')
+def format_pt(value):
+    """Formata números PT-PT: 1.234,56"""
+    if pd.isna(value) or value == 0:
+        return '0,00'
+    try:
+        s = f"{abs(value):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        return f"{ '-' if value < 0 else '' }{s}"
+    except:
+        return str(value)
 
 def valor_liquido(row):
     """Calcula venda líquida: negativos para documentos de débito"""
@@ -27,9 +33,9 @@ def process_uploaded_file(uploaded_file):
     if uploaded_file is not None:
         try:
             content = uploaded_file.read().decode('latin1')
-            lines = content.split('\n')  # ✅ Corrigido
+            lines = content.split('\n')
             data_lines = [line for line in lines[1:] if line.strip() and not line.startswith('sep=')]
-            csv_content = '\n'.join(data_lines)  # ✅ Corrigido
+            csv_content = '\n'.join(data_lines)
             
             df = pd.read_csv(io.StringIO(csv_content), sep=',', quotechar='"', encoding='latin1', on_bad_lines='skip', engine='python')
             df.columns = df.columns.str.strip().str.replace('"', '')
@@ -64,12 +70,6 @@ def process_uploaded_file(uploaded_file):
             st.error(f"Erro: {e}")
             return pd.DataFrame()
     return pd.DataFrame()
-
-def format_pt(value):
-    """Formata números PT-PT: 1.234,56"""
-    if pd.isna(value):
-        return ''
-    return locale.format_string('%.2f', value, grouping=True)
 
 def main():
     st.title("📊 Vendas")
@@ -141,13 +141,13 @@ def main():
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Evolução", "Ⓜ️ Família", "👥 Vendedor", "👨‍👩 Cliente", "🔄 Pivot"])
     
     with tab1:
-        # 👈 ALTERADO: Histograma em vez de linha
+        # Histograma (barras) com valores nas barras
         vendas_dia = df_filtered.groupby(df_filtered['data_venda'].dt.date)['venda_liquida'].sum().reset_index()
         fig = px.bar(vendas_dia, x='data_venda', y='venda_liquida', 
                     title="Valor Líquido Diário (Histograma)",
-                    text='venda_liquida')  # Mostra valores nas barras
-        fig.update_traces(texttemplate='€%{text:.2f}', textposition='outside')
-        fig.update_layout(yaxis_tickformat='.2f')  # Formato decimais
+                    text='venda_liquida')
+        fig.update_traces(texttemplate='€%{text:,.0f}', textposition='outside')
+        fig.update_layout(yaxis_tickformat=',.0f')
         st.plotly_chart(fig, use_container_width=True)
     
     with tab2:
@@ -174,7 +174,6 @@ def main():
             pivot = df_filtered.pivot_table(index=row_dim, values='venda_liquida', aggfunc=agg)
         else:
             pivot = df_filtered.pivot_table(index=row_dim, columns=col_dim, values='venda_liquida', aggfunc=agg)
-        # 👈 Formato PT-PT na tabela pivot
         st.dataframe(pivot.style.format(format_pt))
 
     # Tabela + Download
