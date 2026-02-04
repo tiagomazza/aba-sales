@@ -1,3 +1,4 @@
-pandas
-plotly
-google.colab
+streamlit==1.38.0
+pandas==2.2.2
+plotly==5.24.1
+google-colab==1.0.0
