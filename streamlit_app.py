@@ -2,9 +2,15 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import io
+import os
 from datetime import datetime
+from google.colab import drive  # Para montar Google Drive no Colab
 
 st.set_page_config(page_title="Vendas Líquidas", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
+
+# Senha secreta (mude para a sua!)
+SENHA_CORRETA = "SUA_SENHA_AQUI"
+PASTA_DRIVE = "/content/drive/MyDrive/sua_pasta_csv/"  # Caminho da pasta específica no Drive
 
 def format_pt(value):
     """Formata números PT-PT: 1.234,56"""
@@ -37,7 +43,7 @@ def process_uploaded_file(uploaded_file):
             df = pd.read_csv(io.StringIO(csv_content), sep=',', quotechar='"', encoding='latin1', on_bad_lines='skip', engine='python')
             df.columns = df.columns.str.strip().str.replace('"', '')
             
-            # 👈 Renomeadas as colunas
+            # Renomeadas as colunas
             df['data'] = pd.to_datetime(df['Data'], format='%d-%m-%Y', errors='coerce')
             df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA').astype(str)
             df['documento'] = df['Doc.'].fillna('').astype(str)
@@ -62,12 +68,45 @@ def process_uploaded_file(uploaded_file):
                           (df_clean['Motivo de anulação do documento'] != '')
                 df_clean = df_clean[~anuladas].copy()
             
-            # 👈 Retorna apenas colunas essenciais (sem documento nos KPIs)
+            # Retorna apenas colunas essenciais (sem documento nos KPIs)
             return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'valor_vendido']]
         except Exception as e:
             st.error(f"Erro: {e}")
             return pd.DataFrame()
     return pd.DataFrame()
+
+def carregar_de_drive():
+    """Carrega todos CSVs da pasta específica do Drive após senha correta."""
+    try:
+        # Monta Drive se não montado
+        if not os.path.exists('/content/drive'):
+            drive.mount('/content/drive')
+        
+        if not os.path.exists(PASTA_DRIVE):
+            st.error(f"Pasta não encontrada: {PASTA_DRIVE}")
+            return pd.DataFrame()
+        
+        # Lista todos CSVs na pasta
+        arquivos_csv = [f for f in os.listdir(PASTA_DRIVE) if f.endswith('.csv')]
+        if not arquivos_csv:
+            st.warning("Nenhum CSV encontrado na pasta.")
+            return pd.DataFrame()
+        
+        dfs = []
+        for arquivo in arquivos_csv:
+            caminho = os.path.join(PASTA_DRIVE, arquivo)
+            df_temp = process_uploaded_file(open(caminho, 'rb'))  # Simula upload
+            if not df_temp.empty:
+                dfs.append(df_temp)
+                st.info(f"Carregado: {arquivo}")
+        
+        if dfs:
+            df_final = pd.concat(dfs, ignore_index=True)
+            return df_final
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erro ao carregar do Drive: {e}")
+        return pd.DataFrame()
 
 def main():
     st.title("📊 Vendas")
@@ -75,19 +114,37 @@ def main():
     st.sidebar.header("📁 Upload")
     uploaded_file = st.sidebar.file_uploader("CSV", type="csv")
     
-    if uploaded_file is None:
-        st.info("👈🏾 Carregue arquivo")
+    # Novo botão de senha abaixo do uploader
+    st.sidebar.markdown("---")
+    senha = st.sidebar.text_input("🔐 Senha para Drive:", type="password")
+    if st.sidebar.button("Carregar CSVs do Drive"):
+        if senha == SENHA_CORRETA:
+            df_drive = carregar_de_drive()
+            if not df_drive.empty:
+                st.session_state.df = df_drive
+                st.sidebar.success("✅ CSVs carregados do Drive!")
+                st.rerun()
+            else:
+                st.sidebar.error("❌ Sem dados válidos no Drive.")
+        else:
+            st.sidebar.error("❌ Senha incorreta!")
+    
+    # Prioriza Drive se carregado, senão usa upload
+    if 'df' in st.session_state:
+        df = st.session_state.df
+    elif uploaded_file is not None:
+        df = process_uploaded_file(uploaded_file)
+    else:
+        st.info("👈 Carregue arquivo ou use senha")
         st.stop()
     
-    df = process_uploaded_file(uploaded_file)
     if df.empty:
         st.error("❌ Sem dados válidos")
         st.stop()
     
     st.session_state.df = df
-    # 👈 Removida mensagem de sidebar
 
-    # FILTROS
+    # FILTROS (resto do código igual)
     st.sidebar.header("🎚️ Filtros")
     today = datetime.now()
     first_day = today.replace(day=1)
@@ -174,13 +231,4 @@ def main():
         st.dataframe(pivot.style.format(format_pt))
 
     # Tabela + Download
-    st.markdown("### 📋 Dados")
-    col1, col2 = st.columns([4,1])
-    with col1:
-        st.dataframe(df_filtered.head(200).style.format({'valor_vendido': format_pt}), use_container_width=True)
-    with col2:
-        csv = df_filtered.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 CSV Limpo", csv, f"vendas_limpa_{datetime.now().strftime('%Y%m%d')}.csv")
-
-if __name__ == "__main__":
-    main()
+    st.markdown("###
