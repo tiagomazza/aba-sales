@@ -6,14 +6,28 @@ from datetime import datetime
 
 st.set_page_config(page_title="Vendas Líquidas", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
+# 👈 FUNÇÃO DE DÉBITO CORRIGIDA
+def valor_liquido(row):
+    """Calcula venda líquida: negativos para documentos de débito"""
+    if pd.isna(row['venda_bruta']):
+        return 0
+    
+    doc = str(row['documento']).upper()
+    # Documentos de débito (NC e variantes)
+    debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE', 'ND'}
+    
+    if doc in debitos:
+        return -row['venda_bruta']
+    return row['venda_bruta']
+
 @st.cache_data(ttl=3600)
 def process_uploaded_file(uploaded_file):
     if uploaded_file is not None:
         try:
             content = uploaded_file.read().decode('latin1')
-            lines = content.split('\\n')
+            lines = content.split('\n')  # ✅ Corrigido: escape simples
             data_lines = [line for line in lines[1:] if line.strip() and not line.startswith('sep=')]
-            csv_content = '\\n'.join(data_lines)
+            csv_content = '\n'.join(data_lines)  # ✅ Corrigido: escape simples
             
             df = pd.read_csv(io.StringIO(csv_content), sep=',', quotechar='"', encoding='latin1', on_bad_lines='skip', engine='python')
             df.columns = df.columns.str.strip().str.replace('"', '')
@@ -23,30 +37,25 @@ def process_uploaded_file(uploaded_file):
             df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA').astype(str)
             df['documento'] = df['Doc.'].fillna('').astype(str)
             df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
-            df['cliente'] = df['Nome [Clientes]'].fillna('SEM_CLIENTE').astype(str)
-            df['venda_bruta'] = pd.to_numeric(df['Valor [Documentos GC Lin]'].astype(str).str.replace(',', '.').str.replace('€', ''), errors='coerce')
             
-            # Valor líquido (NC negativo)
-            def valor_liquido(row):
-                if pd.isna(row['venda_bruta']):
-                    return 0
-                
-                doc = str(row['documento']).upper()
-                debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE'}
-                
-                if doc in debitos:
-                    return -row['venda_bruta']
-                return row['venda_bruta']
+            # 👈 CLIENTE: Terceiro - Nome
+            df['cliente'] = (df.get('Terceiro', pd.Series(['']*len(df))).fillna('') + 
+                           ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE'))
             
+            df['venda_bruta'] = pd.to_numeric(df['Valor [Documentos GC Lin]'].astype(str)
+                                            .str.replace(',', '.').str.replace('€', ''), errors='coerce')
+            
+            # Valor líquido com débitos
             df['venda_liquida'] = df.apply(valor_liquido, axis=1)
             
             # FILTRA dados válidos
             df_clean = df.dropna(subset=['data_venda', 'venda_liquida'])
             df_clean = df_clean[df_clean['venda_bruta'] > 0].copy()
             
-            # ❌ NOVA: Remove ANULAÇÕES
+            # Remove ANULAÇÕES
             if 'Motivo de anulação do documento' in df_clean.columns:
-                anuladas = df_clean['Motivo de anulação do documento'].notna() & (df_clean['Motivo de anulação do documento'] != '')
+                anuladas = df_clean['Motivo de anulação do documento'].notna() & \
+                          (df_clean['Motivo de anulação do documento'] != '')
                 n_anuladas = anuladas.sum()
                 df_clean = df_clean[~anuladas].copy()
                 st.caption(f"🗑️ {n_anuladas} linhas anuladas removidas")
@@ -89,7 +98,7 @@ def main():
                                  (df_filtered["data_venda"].dt.date <= end)]
     
     doc_opts = sorted(df_filtered["documento"].dropna().unique())
-    default_docs = [d for d in ['FT', 'FTS', 'NC', 'FTP'] if d in doc_opts]
+    default_docs = [d for d in ['FT', 'FTM', 'FTP', 'FTS', 'NC', 'NCA', 'NCM', 'NCS', 'ND', 'NFI'] if d in doc_opts]
     selected_docs = st.sidebar.multiselect("Documentos", doc_opts, default=default_docs)
     
     familia_opts = sorted(df_filtered["FAMILIA"].dropna().unique())
@@ -98,22 +107,25 @@ def main():
     vendedor_opts = sorted(df_filtered["vendedor"].dropna().unique())
     selected_vendedores = st.sidebar.multiselect("Vendedor", vendedor_opts)
     
-    if selected_docs: df_filtered = df_filtered[df_filtered["documento"].isin(selected_docs)]
-    if selected_familia: df_filtered = df_filtered[df_filtered["FAMILIA"].isin(selected_familia)]
-    if selected_vendedores: df_filtered = df_filtered[df_filtered["vendedor"].isin(selected_vendedores)]
+    if selected_docs: 
+        df_filtered = df_filtered[df_filtered["documento"].isin(selected_docs)]
+    if selected_familia: 
+        df_filtered = df_filtered[df_filtered["FAMILIA"].isin(selected_familia)]
+    if selected_vendedores: 
+        df_filtered = df_filtered[df_filtered["vendedor"].isin(selected_vendedores)]
 
     # KPIs
     st.markdown("### 📊 KPIs (sem anulações)")
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
-    valor_liquido = df_filtered['venda_liquida'].sum()
+    valor_liquido_total = df_filtered['venda_liquida'].sum()
     clientes_mov = df_filtered['cliente'].nunique()
     familias = df_filtered['FAMILIA'].nunique()
     vendedores = df_filtered['vendedor'].nunique()
     docs = df_filtered['documento'].nunique()
-    ticket = valor_liquido / len(df_filtered) if len(df_filtered) else 0
+    ticket = valor_liquido_total / len(df_filtered) if len(df_filtered) else 0
     
-    with col1: st.metric("Valor Líquido", f"€{valor_liquido:,.2f}")
+    with col1: st.metric("Valor Líquido", f"€{valor_liquido_total:,.2f}")
     with col2: st.metric("Clientes Mov.", f"{clientes_mov:,}")
     with col3: st.metric("Famílias", familias)
     with col4: st.metric("Vendedores", vendedores)
