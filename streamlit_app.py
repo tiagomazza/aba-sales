@@ -23,10 +23,20 @@ def process_uploaded_file(uploaded_file):
             df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA').astype(str)
             df['documento'] = df['Doc.'].fillna('').astype(str)
             df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
-            
             df['cliente'] = df['Nome [Clientes]'].fillna('SEM_CLIENTE').astype(str)
-            
             df['venda_bruta'] = pd.to_numeric(df['Valor [Documentos GC Lin]'].astype(str).str.replace(',', '.').str.replace('€', ''), errors='coerce')
+            
+            # Valor líquido (NC negativo)
+            def valor_liquido(row):
+                if pd.isna(row['venda_bruta']):
+                    return 0
+                
+                doc = str(row['documento']).upper()
+                debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE'}
+                
+                if doc in debitos:
+                    return -row['venda_bruta']
+                return row['venda_bruta']
             
             df['venda_liquida'] = df.apply(valor_liquido, axis=1)
             
@@ -79,7 +89,7 @@ def main():
                                  (df_filtered["data_venda"].dt.date <= end)]
     
     doc_opts = sorted(df_filtered["documento"].dropna().unique())
-    default_docs = [d for d in ['FT', 'FTM', 'FTP', 'FTS', 'NC', 'NCA', 'NCM', 'NCS', 'ND', 'NFI'] if d in doc_opts]
+    default_docs = [d for d in ['FT', 'FTS', 'NC', 'FTP'] if d in doc_opts]
     selected_docs = st.sidebar.multiselect("Documentos", doc_opts, default=default_docs)
     
     familia_opts = sorted(df_filtered["FAMILIA"].dropna().unique())
