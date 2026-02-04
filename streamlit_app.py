@@ -85,9 +85,9 @@ Arquivo: {nome_arquivo}
         except Exception as e:
             st.error(f"❌ Erro lista: {e}")
         
-        # 4. COMMITS RECENTES
+        # 4. COMMITS RECENTES - ✅ CORRIGIDO
         st.subheader("**4. ÚLTIMOS COMMITS**")
-        commits = repo.get_commits(sha=repo.default_branch, per_page=5)
+        commits = list(repo.get_commits(sha=repo.default_branch))[:5]  # ← CORREÇÃO AQUI
         for c in commits:
             st.write(f"🗓️ {c.commit.message[:50]} | {c.commit.committer.date.date()}")
         
@@ -99,6 +99,7 @@ Arquivo: {nome_arquivo}
         import traceback
         st.code(traceback.format_exc())
         return None
+
 
 
 def processar_csv(conteudo, nome_arquivo=""):
