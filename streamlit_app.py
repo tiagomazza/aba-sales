@@ -17,13 +17,10 @@ def format_pt(value):
         return str(value)
 
 def valor_liquido(row):
-    """Calcula venda líquida: negativos para documentos de débito"""
     if pd.isna(row['venda_bruta']):
         return 0
-    
     doc = str(row['documento']).upper()
     debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE', 'ND'}
-    
     if doc in debitos:
         return -row['venda_bruta']
     return row['venda_bruta']
@@ -40,7 +37,8 @@ def process_uploaded_file(uploaded_file):
             df = pd.read_csv(io.StringIO(csv_content), sep=',', quotechar='"', encoding='latin1', on_bad_lines='skip', engine='python')
             df.columns = df.columns.str.strip().str.replace('"', '')
             
-            df['data_venda'] = pd.to_datetime(df['Data'], format='%d-%m-%Y', errors='coerce')
+            # 👈 Renomeadas as colunas
+            df['data'] = pd.to_datetime(df['Data'], format='%d-%m-%Y', errors='coerce')
             df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA').astype(str)
             df['documento'] = df['Doc.'].fillna('').astype(str)
             df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
@@ -53,19 +51,19 @@ def process_uploaded_file(uploaded_file):
             df['venda_bruta'] = pd.to_numeric(df['Valor [Documentos GC Lin]'].astype(str)
                                             .str.replace(',', '.').str.replace('€', ''), errors='coerce')
             
-            df['venda_liquida'] = df.apply(valor_liquido, axis=1)
+            df['valor_vendido'] = df.apply(valor_liquido, axis=1)
             
-            df_clean = df.dropna(subset=['data_venda', 'venda_liquida'])
+            df_clean = df.dropna(subset=['data', 'valor_vendido'])
             df_clean = df_clean[df_clean['venda_bruta'] > 0].copy()
             
+            # Remove anulações SEM exibir mensagem
             if 'Motivo de anulação do documento' in df_clean.columns:
                 anuladas = df_clean['Motivo de anulação do documento'].notna() & \
                           (df_clean['Motivo de anulação do documento'] != '')
-                n_anuladas = anuladas.sum()
                 df_clean = df_clean[~anuladas].copy()
-                st.caption(f"🗑️ {n_anuladas} linhas anuladas removidas")
             
-            return df_clean[['data_venda', 'FAMILIA', 'documento', 'vendedor', 'cliente', 'venda_liquida']]
+            # 👈 Retorna apenas colunas essenciais (sem documento nos KPIs)
+            return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'valor_vendido']]
         except Exception as e:
             st.error(f"Erro: {e}")
             return pd.DataFrame()
@@ -87,7 +85,7 @@ def main():
         st.stop()
     
     st.session_state.df = df
-    st.sidebar.success(f"✅ {len(df):,} vendas líquidas (sem anulações)")
+    # 👈 Removida mensagem de sidebar
 
     # FILTROS
     st.sidebar.header("🎚️ Filtros")
@@ -99,12 +97,8 @@ def main():
     df_filtered = df.copy()
     if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
         start, end = date_range
-        df_filtered = df_filtered[(df_filtered["data_venda"].dt.date >= start) & 
-                                 (df_filtered["data_venda"].dt.date <= end)]
-    
-    doc_opts = sorted(df_filtered["documento"].dropna().unique())
-    default_docs = [d for d in ['FT', 'FTM', 'FTP', 'FTS', 'NC', 'NCA', 'NCM', 'NCS', 'ND', 'NFI'] if d in doc_opts]
-    selected_docs = st.sidebar.multiselect("Documentos", doc_opts, default=default_docs)
+        df_filtered = df_filtered[(df_filtered["data"].dt.date >= start) & 
+                                 (df_filtered["data"].dt.date <= end)]
     
     familia_opts = sorted(df_filtered["FAMILIA"].dropna().unique())
     selected_familia = st.sidebar.multiselect("Família", familia_opts)
@@ -112,75 +106,78 @@ def main():
     vendedor_opts = sorted(df_filtered["vendedor"].dropna().unique())
     selected_vendedores = st.sidebar.multiselect("Vendedor", vendedor_opts)
     
-    if selected_docs: 
-        df_filtered = df_filtered[df_filtered["documento"].isin(selected_docs)]
     if selected_familia: 
         df_filtered = df_filtered[df_filtered["FAMILIA"].isin(selected_familia)]
     if selected_vendedores: 
         df_filtered = df_filtered[df_filtered["vendedor"].isin(selected_vendedores)]
 
-    # KPIs - Formato PT-PT
+    # KPIs - SEM documentos
     st.markdown("### 🏆 KPIs")
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
-    valor_liquido_total = df_filtered['venda_liquida'].sum()
+    valor_total = df_filtered['valor_vendido'].sum()
     clientes_mov = df_filtered['cliente'].nunique()
     familias = df_filtered['FAMILIA'].nunique()
     vendedores = df_filtered['vendedor'].nunique()
-    docs = df_filtered['documento'].nunique()
-    ticket = valor_liquido_total / len(df_filtered) if len(df_filtered) else 0
+    ticket = valor_total / len(df_filtered) if len(df_filtered) else 0
     
-    with col1: st.metric("Valor Líquido", f"€{format_pt(valor_liquido_total)}")
+    with col1: st.metric("Valor Vendido", f"€{format_pt(valor_total)}")
     with col2: st.metric("Clientes Mov.", f"{clientes_mov:,}")
     with col3: st.metric("Famílias", familias)
     with col4: st.metric("Vendedores", vendedores)
-    with col5: st.metric("Documentos", docs)
-    with col6: st.metric("Ticket Médio", f"€{format_pt(ticket)}")
+    with col5: st.metric("Ticket Médio", f"€{format_pt(ticket)}")
 
+    # OPÇÃO DE GRÁFICO
+    grafico_tipo = st.sidebar.selectbox("Gráfico Principal", ["Valor Vendido", "Clientes Movimentados"])
+    
     # GRÁFICOS
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Evolução", "Ⓜ️ Família", "👥 Vendedor", "👨‍👩 Cliente", "🔄 Pivot"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Vendas", "Ⓜ️ Família", "👥 Vendedor", "👨‍👩 Cliente", "🔄 Pivot"])
     
     with tab1:
-        # Histograma (barras) com valores nas barras
-        vendas_dia = df_filtered.groupby(df_filtered['data_venda'].dt.date)['venda_liquida'].sum().reset_index()
-        fig = px.bar(vendas_dia, x='data_venda', y='venda_liquida', 
-                    title="Valor Líquido Diário (Histograma)",
-                    text='venda_liquida')
-        fig.update_traces(texttemplate='€%{text:,.0f}', textposition='outside')
-        fig.update_layout(yaxis_tickformat=',.0f')
+        if grafico_tipo == "Valor Vendido":
+            vendas_dia = df_filtered.groupby(df_filtered['data'].dt.date)['valor_vendido'].sum().reset_index()
+            fig = px.bar(vendas_dia, x='data', y='valor_vendido', 
+                        title="Vendas", text='valor_vendido')
+        else:  # Clientes Movimentados
+            clientes_dia = df_filtered.groupby(df_filtered['data'].dt.date)['cliente'].nunique().reset_index()
+            fig = px.bar(clientes_dia, x='data', y='cliente', 
+                        title="Clientes Movimentados", text='cliente')
+        
+        fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig.update_layout(yaxis_tickformat=',.0f', xaxis_title="Data", yaxis_title=grafico_tipo)
         st.plotly_chart(fig, use_container_width=True)
     
     with tab2:
-        top_familia = df_filtered.groupby('FAMILIA')['venda_liquida'].sum().nlargest(15).reset_index()
-        fig = px.bar(top_familia, x='FAMILIA', y='venda_liquida', title="Top 15 Famílias")
+        top_familia = df_filtered.groupby('FAMILIA')['valor_vendido'].sum().nlargest(15).reset_index()
+        fig = px.bar(top_familia, x='FAMILIA', y='valor_vendido', title="Top 15 Famílias")
         st.plotly_chart(fig, use_container_width=True)
     
     with tab3:
-        top_vend = df_filtered.groupby('vendedor')['venda_liquida'].sum().nlargest(15).reset_index()
-        fig = px.bar(top_vend, x='vendedor', y='venda_liquida', title="Top 15 Vendedores")
+        top_vend = df_filtered.groupby('vendedor')['valor_vendido'].sum().nlargest(15).reset_index()
+        fig = px.bar(top_vend, x='vendedor', y='valor_vendido', title="Top 15 Vendedores")
         st.plotly_chart(fig, use_container_width=True)
     
     with tab4:
-        top_cli = df_filtered.groupby('cliente')['venda_liquida'].sum().nlargest(15).reset_index()
-        fig = px.bar(top_cli, x='cliente', y='venda_liquida', title="Top 15 Clientes")
+        top_cli = df_filtered.groupby('cliente')['valor_vendido'].sum().nlargest(15).reset_index()
+        fig = px.bar(top_cli, x='cliente', y='valor_vendido', title="Top 15 Clientes")
         st.plotly_chart(fig, use_container_width=True)
     
     with tab5:
-        row_dim = st.selectbox("Linhas", ['FAMILIA', 'vendedor', 'cliente', 'documento'])
-        col_dim = st.selectbox("Colunas", ['Nenhuma', 'FAMILIA', 'vendedor', 'documento'])
+        row_dim = st.selectbox("Linhas", ['FAMILIA', 'vendedor', 'cliente'])
+        col_dim = st.selectbox("Colunas", ['Nenhuma', 'FAMILIA', 'vendedor'])
         agg = st.selectbox("Função", ['sum', 'mean'])
         
         if col_dim == 'Nenhuma':
-            pivot = df_filtered.pivot_table(index=row_dim, values='venda_liquida', aggfunc=agg)
+            pivot = df_filtered.pivot_table(index=row_dim, values='valor_vendido', aggfunc=agg)
         else:
-            pivot = df_filtered.pivot_table(index=row_dim, columns=col_dim, values='venda_liquida', aggfunc=agg)
+            pivot = df_filtered.pivot_table(index=row_dim, columns=col_dim, values='valor_vendido', aggfunc=agg)
         st.dataframe(pivot.style.format(format_pt))
 
     # Tabela + Download
     st.markdown("### 📋 Dados")
     col1, col2 = st.columns([4,1])
     with col1:
-        st.dataframe(df_filtered.head(200).style.format({'venda_liquida': format_pt}), use_container_width=True)
+        st.dataframe(df_filtered.head(200).style.format({'valor_vendido': format_pt}), use_container_width=True)
     with col2:
         csv = df_filtered.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 CSV Limpo", csv, f"vendas_limpa_{datetime.now().strftime('%Y%m%d')}.csv")
