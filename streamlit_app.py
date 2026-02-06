@@ -178,17 +178,13 @@ def main():
             st.error("❌ Sem dados")
 
     if "df" not in st.session_state:
-<<<<<<< HEAD
+
         st.info("👈 Carregue os dados")
-=======
-        st.info("👈 Carregue CSV ou use senha.")
->>>>>>> 08e586435e90e0dd2637beed3ad488f464b10019
         st.stop()
 
     df = st.session_state.df
     datas_upload = st.session_state.get('datas_upload', {})
 
-<<<<<<< HEAD
     # Datas GitHub
     st.markdown("### 📅 Datas Upload")
     if datas_upload:
@@ -203,12 +199,6 @@ def main():
         st.info("Sem GitHub")
 
     st.sidebar.header("🎚️ Filtros")
-=======
-    # ---------------------------
-    # 🔧 FILTROS
-    # ---------------------------
-    st.sidebar.header("🔧 Filtros")
->>>>>>> 08e586435e90e0dd2637beed3ad488f464b10019
     hoje = datetime.now()
     ontem = hoje - timedelta(days=1)
     inicio_mes = hoje.replace(day=1)
@@ -306,15 +296,12 @@ def main():
         st.dataframe(pivot.style.format(format_pt))
 
     csv = df_filt.to_csv(index=False).encode('utf-8-sig')
-<<<<<<< HEAD
+
     st.download_button(
         "💾 Exportar CSV",
         csv,
         f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
     )
-=======
-    st.download_button("📥 CSV", csv, f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
->>>>>>> 08e586435e90e0dd2637beed3ad488f464b10019
 
 if __name__ == "__main__":
     main()
