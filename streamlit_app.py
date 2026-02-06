@@ -265,7 +265,7 @@ def main():
     with tabs[0]:
         if tipo == "Valor Vendido":
             diario = df_filt.groupby(df_filt.data.dt.date).valor_vendido.sum().reset_index()
-            fig = px.bar(diario, x='data', y='valor_vendido', title="Diário", text='valor vendido')
+            fig = px.bar(diario, x='data', y='valor_vendido', title="Diário", text='valor_vendido')
         else:
             diario = df_filt.groupby(df_filt.data.dt.date).cliente.nunique().reset_index()
             fig = px.bar(diario, x='data', y='cliente', title="Clientes Diário", text='cliente')
