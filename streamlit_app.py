@@ -202,7 +202,7 @@ def main():
     inicio_mes = hoje.replace(day=1)
 
     # intervalo padrão: primeiro dia do mês até ontem
-    date_range = st.sidebar.date_input("Data", (inicio_mes.date(), ontem.date()))
+    date_range = st.sidebar.date_input("📅Data", (inicio_mes.date(), ontem.date()))
 
     df_filt = df.copy()
     if len(date_range) == 2:
@@ -215,7 +215,7 @@ def main():
     vendedores_unicos = sorted(df_filt.vendedor.dropna().unique())
     pre_vend = ['VT', 'OC', 'DB', 'HR', 'AB', 'FL']
     vendedor = st.sidebar.multiselect(
-        "Vendedor",
+        "🦸Vendedor",
         options=vendedores_unicos,
         default=[v for v in pre_vend if v in vendedores_unicos]
     )
@@ -223,12 +223,12 @@ def main():
     docs_unicos = sorted(df_filt.documento.dropna().unique())
     pre_docs = ['FT', 'FTP', 'NC']
     doc_filter = st.sidebar.multiselect(
-        "Documento",
+        "📄Documento",
         options=docs_unicos,
         default=[d for d in pre_docs if d in docs_unicos]
     )
 
-    familia = st.sidebar.multiselect("Família", sorted(df_filt.FAMILIA.dropna().unique()))
+    familia = st.sidebar.multiselect("Ⓜ️Família", sorted(df_filt.FAMILIA.dropna().unique()))
 
     # Aplicação dos filtros
     if vendedor:
@@ -256,16 +256,16 @@ def main():
     with cols[3]:
         st.metric("🦸 Vendedores", vend)
     with cols[4]:
-        st.metric("💳 Ticket", f"€{format_pt(ticket)}")
+        st.metric("💳 Ticket médio", f"€{format_pt(ticket)}")
 
     # Gráficos
-    tipo = st.sidebar.selectbox("Gráfico", ["Valor Vendido", "Clientes"])
+    tipo = st.sidebar.selectbox("📊Gráfico", ["Valor Vendido", "Clientes movimentados"])
     tabs = st.tabs(["📈 Dia", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
 
     with tabs[0]:
         if tipo == "Valor Vendido":
             diario = df_filt.groupby(df_filt.data.dt.date).valor_vendido.sum().reset_index()
-            fig = px.bar(diario, x='data', y='valor_vendido', title="Diário", text='valor_vendido')
+            fig = px.bar(diario, x='data', y='valor_vendido', title="Diário", text='valor vendido')
         else:
             diario = df_filt.groupby(df_filt.data.dt.date).cliente.nunique().reset_index()
             fig = px.bar(diario, x='data', y='cliente', title="Clientes Diário", text='cliente')
