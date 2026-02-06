@@ -88,8 +88,8 @@ def processar_csv(conteudo, nome_arquivo=""):
             errors='coerce'
         )
 
-        df['valor_vendido'] = df.apply(valor_liquido, axis=1)
-        df_clean = df.dropna(subset=['data', 'valor_vendido'])
+        df['Vendido'] = df.apply(valor_liquido, axis=1)
+        df_clean = df.dropna(subset=['data', 'Vendido'])
         df_clean = df_clean[df_clean['venda_bruta'] > 0].copy()
 
         if 'Motivo de anulação do documento' in df_clean.columns:
@@ -98,7 +98,7 @@ def processar_csv(conteudo, nome_arquivo=""):
             df_clean = df_clean[~anuladas].copy()
 
         df_clean['arquivo'] = nome_arquivo
-        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'documento', 'valor_vendido', 'arquivo']]
+        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'documento', 'Vendido', 'arquivo']]
     except Exception as e:
         st.error(f"Erro CSV: {e}")
         return pd.DataFrame()
@@ -241,7 +241,7 @@ def main():
     # KPIs
     st.markdown("### 🏆 KPIs")
     cols = st.columns(5)
-    total = df_filt.valor_vendido.sum()
+    total = df_filt.Vendido.sum()
     cli = df_filt.cliente.nunique()
     fam = df_filt.FAMILIA.nunique()
     vend = df_filt.vendedor.nunique()
@@ -264,8 +264,8 @@ def main():
 
     with tabs[0]:
         if tipo == "Valor Vendido":
-            diario = df_filt.groupby(df_filt.data.dt.date).valor_vendido.sum().reset_index()
-            fig = px.bar(diario, x='data', y='valor_vendido', title="Diário", text='valor_vendido')
+            diario = df_filt.groupby(df_filt.data.dt.date).Vendido.sum().reset_index()
+            fig = px.bar(diario, x='data', y='Vendido', title="Diário", text='Vendido')
         else:
             diario = df_filt.groupby(df_filt.data.dt.date).cliente.nunique().reset_index()
             fig = px.bar(diario, x='data', y='cliente', title="Clientes Diário", text='cliente')
@@ -273,18 +273,18 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[1]:
-        top = df_filt.groupby('FAMILIA').valor_vendido.sum().nlargest(15).reset_index()
-        fig = px.bar(top, x='FAMILIA', y='valor_vendido', title="Top Famílias")
+        top = df_filt.groupby('Familia').Vendido.sum().nlargest(15).reset_index()
+        fig = px.bar(top, x='FAMILIA', y='Vendido', title="Top Famílias")
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[2]:
-        top = df_filt.groupby('vendedor').valor_vendido.sum().nlargest(15).reset_index()
-        fig = px.bar(top, x='vendedor', y='valor_vendido', title="Top Vendedores")
+        top = df_filt.groupby('vendedor').Vendido.sum().nlargest(15).reset_index()
+        fig = px.bar(top, x='vendedor', y='Vendido', title="Top Vendedores")
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[3]:
-        top = df_filt.groupby('cliente').valor_vendido.sum().nlargest(15).reset_index()
-        fig = px.bar(top, x='cliente', y='valor_vendido', title="Top Clientes")
+        top = df_filt.groupby('cliente').Vendido.sum().nlargest(15).reset_index()
+        fig = px.bar(top, x='cliente', y='Vendido', title="Top Clientes")
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[4]:
@@ -292,9 +292,9 @@ def main():
         colu = st.selectbox("Colunas", ['Nenhuma', 'FAMILIA', 'vendedor'])
         func = st.selectbox("Agg", ['sum', 'mean'])
         if colu == 'Nenhuma':
-            pivot = df_filt.pivot_table(index=linha, values='valor_vendido', aggfunc=func)
+            pivot = df_filt.pivot_table(index=linha, values='Vendido', aggfunc=func)
         else:
-            pivot = df_filt.pivot_table(index=linha, columns=colu, values='valor_vendido', aggfunc=func)
+            pivot = df_filt.pivot_table(index=linha, columns=colu, values='Vendido', aggfunc=func)
         st.dataframe(pivot.style.format(format_pt))
 
     csv = df_filt.to_csv(index=False).encode('utf-8-sig')
