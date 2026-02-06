@@ -6,8 +6,10 @@ from datetime import datetime
 import os
 from github import Github
 
+
 st.set_page_config(page_title="Vendas Líquidas", page_icon="📊",
                    layout="wide", initial_sidebar_state="expanded")
+
 
 # CONFIGS
 PASTA_CSV_LOCAL = "data"
@@ -15,58 +17,47 @@ SENHA_CORRETA = "admin2026"
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 GITHUB_REPO = "tiagomazza/aba-sales"
 
+
 def format_pt(value):
-    if pd.isna(value) or value == 0: return '0,00'
+    if pd.isna(value) or value == 0:
+        return '0,00'
     try:
         s = f"{abs(value):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
         return f"{'-' if value < 0 else ''}{s}"
-    except: return str(value)
+    except:
+        return str(value)
+
 
 def valor_liquido(row):
-    if pd.isna(row['venda_bruta']): return 0
+    if pd.isna(row['venda_bruta']):
+        return 0
     doc = str(row['documento']).upper()
     debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE', 'ND'}
     return -row['venda_bruta'] if doc in debitos else row['venda_bruta']
 
-# SUBSTITUI TEMPORARIAMENTE a função obter_data_upload_github por esta VERSÃO DEBUG:
-
-# 🔥 DEBUG ULTRA COMPLETO - SUBSTITUI TODA a função obter_data_upload_github:
 
 def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
     """✅ VERSÃO ROBUSTA - Trata ContentFile SEM last_commit"""
-    
-    if not token: return None
-    
+    if not token:
+        return None
     try:
         g = Github(token)
         repo = g.get_repo(repo_nome)
-        
-        # Testa caminhos possíveis
         caminhos = [nome_arquivo, f"data/{nome_arquivo}"]
-        
         for caminho in caminhos:
             try:
                 conteudo = repo.get_contents(caminho)
-                
-                # ✅ TRATAMENTO ROBUSTO DOS TIPOS
                 if hasattr(conteudo, 'last_commit') and conteudo.last_commit:
                     return conteudo.last_commit.commit.committer.date.replace(tzinfo=None)
-                
-                # 🔄 ALTERNATIVA: commits do arquivo
                 commits = list(repo.get_commits(path=caminho))[:1]
                 if commits:
                     return commits[0].commit.committer.date.replace(tzinfo=None)
-                
             except:
                 continue
-        
         return None
-        
     except Exception as e:
         st.error(f"GitHub erro: {e}")
         return None
-
-
 
 
 def processar_csv(conteudo, nome_arquivo=""):
@@ -89,9 +80,11 @@ def processar_csv(conteudo, nome_arquivo=""):
         df['documento'] = df['Doc.'].fillna('').astype(str)
         df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
 
-        df['cliente'] = (df.get('Terceiro', pd.Series([''] * len(df)))
-                        .fillna('').astype(str).str.replace('=', '').str.replace('"', '')
-                        + ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE'))
+        df['cliente'] = (
+            df.get('Terceiro', pd.Series([''] * len(df)))
+            .fillna('').astype(str).str.replace('=', '').str.replace('"', '')
+            + ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE')
+        )
 
         df['venda_bruta'] = pd.to_numeric(
             df['Valor [Documentos GC Lin]'].astype(str).str.replace(',', '.').str.replace('€', ''),
@@ -108,18 +101,22 @@ def processar_csv(conteudo, nome_arquivo=""):
             df_clean = df_clean[~anuladas].copy()
 
         df_clean['arquivo'] = nome_arquivo
-        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'valor_vendido', 'arquivo']]
+        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'documento', 'valor_vendido', 'arquivo']]
     except Exception as e:
         st.error(f"Erro CSV: {e}")
         return pd.DataFrame()
 
+
 def listar_csvs_pasta_local(pasta):
-    if not os.path.isdir(pasta): return []
+    if not os.path.isdir(pasta):
+        return []
     return [f for f in os.listdir(pasta) if f.lower().endswith('.csv')]
+
 
 def carregar_csvs_pasta_local(pasta):
     arquivos = listar_csvs_pasta_local(pasta)
-    if not arquivos: return [], pd.DataFrame(), {}
+    if not arquivos:
+        return [], pd.DataFrame(), {}
 
     dfs, datas_upload = [], {}
     progress_bar = st.progress(0)
@@ -129,44 +126,47 @@ def carregar_csvs_pasta_local(pasta):
         try:
             with open(os.path.join(pasta, nome), 'rb') as f:
                 conteudo = f.read()
-            
-            # 🔥 BUSCA DATA GITHUB (ROBUSTA)
+
             data_upload = obter_data_upload_github(nome, GITHUB_REPO, GITHUB_TOKEN)
             datas_upload[nome] = data_upload
-            
+
             if data_upload:
                 st.success(f"✅ {nome}: {data_upload.strftime('%d/%m %H:%M')}")
             else:
                 st.warning(f"⚠️ {nome}: Sem data GitHub")
-            
+
             df_temp = processar_csv(conteudo, nome)
-            if not df_temp.empty: dfs.append(df_temp)
-            
+            if not df_temp.empty:
+                dfs.append(df_temp)
+
         except Exception as e:
             st.error(f"❌ Erro {nome}: {e}")
-        
+
         progress_bar.progress((i + 1) / len(arquivos))
     progress_bar.empty()
 
     df_final = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     return arquivos, df_final, datas_upload
 
+
 def main():
     st.title("📊 Dashboard Vendas Líquidas")
     st.markdown(f"**Pasta:** `{PASTA_CSV_LOCAL}/`")
-    
-    if GITHUB_TOKEN: st.success(f"🔗 GitHub: {GITHUB_REPO}")
-    else: st.warning("⚠️ GITHUB_TOKEN em secrets.toml para datas")
+
+    if GITHUB_TOKEN:
+        st.success(f"🔗 GitHub: {GITHUB_REPO}")
+    else:
+        st.warning("⚠️ GITHUB_TOKEN em secrets.toml para datas")
 
     st.sidebar.header("📁 Carregar")
 
-    # SENHA → PASTA LOCAL
+    # Senha → Pasta local
     senha = st.sidebar.text_input("🔐 Senha:", type="password")
     if st.sidebar.button("🚀 Pasta projeto"):
         if senha != SENHA_CORRETA:
             st.error("❌ Senha!")
             st.stop()
-        
+
         arquivos, df, datas_upload = carregar_csvs_pasta_local(PASTA_CSV_LOCAL)
         if not arquivos:
             st.error(f"❌ Sem CSV em {PASTA_CSV_LOCAL}")
@@ -179,7 +179,7 @@ def main():
         st.sidebar.success(f"✅ {len(arquivos)} CSV | {len(df):,} linhas")
         st.rerun()
 
-    # UPLOAD
+    # Upload manual
     uploaded = st.sidebar.file_uploader("📁 Upload:", type="csv", accept_multiple_files=True)
     if uploaded:
         dfs = [processar_csv(f, f.name) for f in uploaded]
@@ -198,32 +198,51 @@ def main():
     df = st.session_state.df
     datas_upload = st.session_state.get('datas_upload', {})
 
-    # 📅 DATAS GITHUB
+    # Datas GitHub
     st.markdown("### 📅 Datas Upload")
     if datas_upload:
         cols = st.columns(3)
         for i, (nome, data) in enumerate(datas_upload.items()):
             with cols[i % 3]:
-                st.metric(nome[:25], 
-                         data.strftime('%d/%m %H:%M') if data else "N/D")
+                st.metric(
+                    nome[:25],
+                    data.strftime('%d/%m %H:%M') if data else "N/D"
+                )
     else:
         st.info("Sem GitHub")
 
-    # FILTROS
+    # ---------------------------
+    # 🔧 FILTROS
+    # ---------------------------
     st.sidebar.header("🔧 Filtros")
     hoje = datetime.now()
     date_range = st.sidebar.date_input("Data", (hoje.replace(day=1).date(), hoje.date()))
 
     df_filt = df.copy()
     if len(date_range) == 2:
-        df_filt = df_filt[(df_filt.data.dt.date >= date_range[0]) & 
-                          (df_filt.data.dt.date <= date_range[1])]
+        df_filt = df_filt[
+            (df_filt.data.dt.date >= date_range[0]) &
+            (df_filt.data.dt.date <= date_range[1])
+        ]
 
     familia = st.sidebar.multiselect("Família", sorted(df_filt.FAMILIA.dropna().unique()))
     vendedor = st.sidebar.multiselect("Vendedor", sorted(df_filt.vendedor.dropna().unique()))
 
-    if familia: df_filt = df_filt[df_filt.FAMILIA.isin(familia)]
-    if vendedor: df_filt = df_filt[df_filt.vendedor.isin(vendedor)]
+    # Novo filtro de documento
+    docs_unicos = sorted(df_filt.documento.dropna().unique())
+    pre_docs = ['VT', 'OC', 'DB', 'AB', 'FL', 'HR']
+    doc_filter = st.sidebar.multiselect(
+        "Documento (Doc.)",
+        options=docs_unicos,
+        default=[d for d in pre_docs if d in docs_unicos]
+    )
+
+    if familia:
+        df_filt = df_filt[df_filt.FAMILIA.isin(familia)]
+    if vendedor:
+        df_filt = df_filt[df_filt.vendedor.isin(vendedor)]
+    if doc_filter:
+        df_filt = df_filt[df_filt.documento.isin(doc_filter)]
 
     # KPIs
     st.markdown("### 🏆 KPIs")
@@ -240,7 +259,7 @@ def main():
     with cols[3]: st.metric("👨 Vendedores", vend)
     with cols[4]: st.metric("💳 Ticket", f"€{format_pt(ticket)}")
 
-    # GRÁFICOS
+    # Gráficos
     tipo = st.sidebar.selectbox("Gráfico", ["Valor Vendido", "Clientes"])
     tabs = st.tabs(["📈 Dia", "🏷️ Família", "👨 Vendedor", "👥 Cliente", "📊 Pivot"])
 
@@ -279,10 +298,15 @@ def main():
             pivot = df_filt.pivot_table(index=linha, columns=colu, values='valor_vendido', aggfunc=func)
         st.dataframe(pivot.style.format(format_pt))
 
-    # DOWNLOAD
+    # Download
     st.markdown("### 💾 Export")
     csv = df_filt.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("📥 CSV", csv, f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
+    st.download_button(
+        "📥 CSV",
+        csv,
+        f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+    )
+
 
 if __name__ == "__main__":
     main()
