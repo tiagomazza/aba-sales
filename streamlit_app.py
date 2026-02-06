@@ -88,8 +88,8 @@ def processar_csv(conteudo, nome_arquivo=""):
             errors='coerce'
         )
 
-        df['Vendido'] = df.apply(valor_liquido, axis=1)
-        df_clean = df.dropna(subset=['data', 'Vendido'])
+        df['vendido'] = df.apply(valor_liquido, axis=1)
+        df_clean = df.dropna(subset=['data', 'vendido'])
         df_clean = df_clean[df_clean['venda_bruta'] > 0].copy()
 
         if 'Motivo de anulação do documento' in df_clean.columns:
@@ -98,7 +98,7 @@ def processar_csv(conteudo, nome_arquivo=""):
             df_clean = df_clean[~anuladas].copy()
 
         df_clean['arquivo'] = nome_arquivo
-        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'documento', 'Vendido', 'arquivo']]
+        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'documento', 'vendido', 'arquivo']]
     except Exception as e:
         st.error(f"Erro CSV: {e}")
         return pd.DataFrame()
@@ -241,7 +241,7 @@ def main():
     # KPIs
     st.markdown("### 🏆 KPIs")
     cols = st.columns(5)
-    total = df_filt.Vendido.sum()
+    total = df_filt.vendido.sum()
     cli = df_filt.cliente.nunique()
     fam = df_filt.FAMILIA.nunique()
     vend = df_filt.vendedor.nunique()
@@ -259,13 +259,13 @@ def main():
         st.metric("💳 Ticket médio", f"€{format_pt(ticket)}")
 
     # Gráficos
-    tipo = st.sidebar.selectbox("📊Gráfico", ["Valor Vendido", "Clientes movimentados"])
+    tipo = st.sidebar.selectbox("📊Gráfico", ["Valor vendido", "Clientes movimentados"])
     tabs = st.tabs(["📈 Dia", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
 
     with tabs[0]:
-        if tipo == "Valor Vendido":
-            diario = df_filt.groupby(df_filt.data.dt.date).Vendido.sum().reset_index()
-            fig = px.bar(diario, x='data', y='Vendido', title="Diário", text='Vendido')
+        if tipo == "Valor vendido":
+            diario = df_filt.groupby(df_filt.data.dt.date).vendido.sum().reset_index()
+            fig = px.bar(diario, x='data', y='vendido', title="Diário", text='vendido')
         else:
             diario = df_filt.groupby(df_filt.data.dt.date).cliente.nunique().reset_index()
             fig = px.bar(diario, x='data', y='cliente', title="Clientes Diário", text='cliente')
@@ -273,18 +273,18 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[1]:
-        top = df_filt.groupby('Familia').Vendido.sum().nlargest(15).reset_index()
-        fig = px.bar(top, x='FAMILIA', y='Vendido', title="Top Famílias")
+        top = df_filt.groupby('Familia').vendido.sum().nlargest(15).reset_index()
+        fig = px.bar(top, x='FAMILIA', y='vendido', title="Top Famílias")
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[2]:
-        top = df_filt.groupby('vendedor').Vendido.sum().nlargest(15).reset_index()
-        fig = px.bar(top, x='vendedor', y='Vendido', title="Top Vendedores")
+        top = df_filt.groupby('vendedor').vendido.sum().nlargest(15).reset_index()
+        fig = px.bar(top, x='vendedor', y='vendido', title="Top Vendedores")
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[3]:
-        top = df_filt.groupby('cliente').Vendido.sum().nlargest(15).reset_index()
-        fig = px.bar(top, x='cliente', y='Vendido', title="Top Clientes")
+        top = df_filt.groupby('cliente').vendido.sum().nlargest(15).reset_index()
+        fig = px.bar(top, x='cliente', y='vendido', title="Top Clientes")
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[4]:
@@ -292,9 +292,9 @@ def main():
         colu = st.selectbox("Colunas", ['Nenhuma', 'FAMILIA', 'vendedor'])
         func = st.selectbox("Agg", ['sum', 'mean'])
         if colu == 'Nenhuma':
-            pivot = df_filt.pivot_table(index=linha, values='Vendido', aggfunc=func)
+            pivot = df_filt.pivot_table(index=linha, values='vendido', aggfunc=func)
         else:
-            pivot = df_filt.pivot_table(index=linha, columns=colu, values='Vendido', aggfunc=func)
+            pivot = df_filt.pivot_table(index=linha, columns=colu, values='vendido', aggfunc=func)
         st.dataframe(pivot.style.format(format_pt))
 
     csv = df_filt.to_csv(index=False).encode('utf-8-sig')
