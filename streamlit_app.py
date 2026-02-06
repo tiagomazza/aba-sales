@@ -146,24 +146,33 @@ def carregar_csvs_pasta_local(pasta):
     return arquivos, df_final, datas_upload
 
 
-def criar_pie_sem_menores_1pc(grup_df, nome_categoria, titulo):
-    """Cria gráfico de pizza removendo rótulos < 1%"""
+def criar_pie_sem_rotulos_menores_1pc(grup_df, nome_categoria, titulo):
+    """Cria gráfico de pizza mantendo TODAS fatias, mas sem rótulos < 1%"""
     total_geral = grup_df['valor_vendido'].sum()
-    threshold = total_geral * 0.01  # 1%
-    
-    # Filtra apenas categorias >= 1%
-    pie_data = grup_df[grup_df['valor_vendido'] >= threshold].copy()
-    
-    if pie_data.empty:
-        st.warning("Nenhuma categoria tem >= 1% do total")
-        return None
     
     fig_pie = px.pie(
-        pie_data,
+        grup_df,
         names=nome_categoria,
         values='valor_vendido',
         title=titulo
     )
+    
+    # Remove rótulos de fatias < 1%
+    fig_pie.update_traces(
+        textinfo='percent+label',
+        textfont_size=12,
+        textposition='inside',
+        texttemplate='%{label}<br>%{percent:.1%}',
+        insidetextorientation='radial'
+    )
+    
+    # Configura hover para mostrar valores exatos
+    fig_pie.update_traces(
+        hovertemplate='<b>%{label}</b><br>' +
+                      'Valor: €%{value:,.0f}<br>' +
+                      'Percentual: %{percent:.1%}<extra></extra>'
+    )
+    
     return fig_pie
 
 
@@ -298,10 +307,9 @@ def main():
         fig = px.bar(top, x='FAMILIA', y='valor_vendido', title="Top Famílias")
         st.plotly_chart(fig, use_container_width=True)
 
-        # Pizza SEM rótulos < 1%
-        fig_pie = criar_pie_sem_menores_1pc(grup_fam, 'FAMILIA', "Participação por Família (100%)")
-        if fig_pie:
-            st.plotly_chart(fig_pie, use_container_width=True)
+        # Pizza com TODAS fatias, mas SEM rótulos < 1%
+        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_fam, 'FAMILIA', "Participação por Família (100%)")
+        st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[2]:
         grup_vend = df_filt.groupby('vendedor').valor_vendido.sum().reset_index()
@@ -309,10 +317,9 @@ def main():
         fig = px.bar(top, x='vendedor', y='valor_vendido', title="Top Vendedores")
         st.plotly_chart(fig, use_container_width=True)
 
-        # Pizza SEM rótulos < 1%
-        fig_pie = criar_pie_sem_menores_1pc(grup_vend, 'vendedor', "Participação por Vendedor (100%)")
-        if fig_pie:
-            st.plotly_chart(fig_pie, use_container_width=True)
+        # Pizza com TODAS fatias, mas SEM rótulos < 1%
+        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_vend, 'vendedor', "Participação por Vendedor (100%)")
+        st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[3]:
         grup_cli = df_filt.groupby('cliente').valor_vendido.sum().reset_index()
@@ -320,10 +327,9 @@ def main():
         fig = px.bar(top, x='cliente', y='valor_vendido', title="Top Clientes")
         st.plotly_chart(fig, use_container_width=True)
 
-        # Pizza SEM rótulos < 1%
-        fig_pie = criar_pie_sem_menores_1pc(grup_cli, 'cliente', "Participação por Cliente (100%)")
-        if fig_pie:
-            st.plotly_chart(fig_pie, use_container_width=True)
+        # Pizza com TODAS fatias, mas SEM rótulos < 1%
+        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_cli, 'cliente', "Participação por Cliente (100%)")
+        st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[4]:
         linha = st.selectbox("➖ Linhas", ['FAMILIA', 'vendedor', 'cliente'])
