@@ -144,7 +144,7 @@ def main():
     st.title("📊 Dashboard Vendas Líquidas")
 
     if GITHUB_TOKEN:
-        st.success(f"**✅upload do ficheiroPasta:**)
+        st.success(f"**✅upload do ficheiroPasta:**")
     else:
         st.warning("⚠️ Erro ao buscar dados")
 
