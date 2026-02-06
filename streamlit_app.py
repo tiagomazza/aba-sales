@@ -288,14 +288,22 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[4]:
-        linha = st.selectbox("➖Linhas", ['FAMILIA', 'vendedor', 'cliente'])
-        colu = st.selectbox("➕Colunas", ['vendedor','Nenhuma', 'FAMILIA'])
-        func = st.selectbox("Agregador", ['sum', 'mean'])
+        linha = st.selectbox("➖ Linhas", ['FAMILIA', 'vendedor', 'cliente'])
+        colu = st.selectbox("➕ Colunas", ['vendedor', 'Nenhuma', 'FAMILIA'])
+
+        # 🔄 Mapeamento amigável do agregador
+        func_label = st.selectbox("🔢 Agregador", ['Soma', 'Média'])
+        func_map = {'Soma': 'sum', 'Média': 'mean'}
+        func = func_map[func_label]
+
+        # Pivot com função escolhida
         if colu == 'Nenhuma':
             pivot = df_filt.pivot_table(index=linha, values='valor_vendido', aggfunc=func)
         else:
             pivot = df_filt.pivot_table(index=linha, columns=colu, values='valor_vendido', aggfunc=func)
+
         st.dataframe(pivot.style.format(format_pt))
+
 
     csv = df_filt.to_csv(index=False).encode('utf-8-sig')
     st.download_button(
