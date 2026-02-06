@@ -147,9 +147,9 @@ def carregar_csvs_pasta_local(pasta):
 
 
 def main():
-    st.title("📊 Dashboard Vendas Líquidas")
+    st.title("📊 ABA-SALES Dashboard")
 
-    st.sidebar.header("📁 Carregar ficheiros")
+    st.sidebar.header("🗃️ Carregar ficheiros")
 
     # Senha → Pasta local
     senha = st.sidebar.text_input("🔐 Senha:", type="password")
@@ -167,7 +167,7 @@ def main():
         st.rerun()
 
     # Upload manual
-    uploaded = st.sidebar.file_uploader("📁 Upload:", type="csv", accept_multiple_files=True)
+    uploaded = st.sidebar.file_uploader("📁 Upload manual:", type="csv", accept_multiple_files=True)
     if uploaded:
         dfs = [processar_csv(f, f.name) for f in uploaded]
         df = pd.concat([d for d in dfs if not d.empty], ignore_index=True)
