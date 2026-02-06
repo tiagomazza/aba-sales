@@ -185,18 +185,18 @@ def main():
     df = st.session_state.df
     datas_upload = st.session_state.get('datas_upload', {})
 
-# 📅 Data GitHub
-st.markdown("### 📅 Atualização dos ficheiros")
+        # 📅 Data GitHub
+        st.markdown("### 📅 Atualização dos ficheiros")
 
-if datas_upload:
-    # Usa a data mais recente entre os ficheiros
-    ultima_data = max([d for d in datas_upload.values() if d is not None], default=None)
-    if ultima_data:
-        st.info(f"📅 Ficheiro atualizado a {ultima_data.strftime('%d/%m %H:%M')}")
-    else:
-        st.warning("⚠️ Ficheiros sem data de atualização válida.")
-else:
-    st.info("📅 Nenhum ficheiro carregado do GitHub.")
+        if datas_upload:
+            # Usa a data mais recente entre os ficheiros
+            ultima_data = max([d for d in datas_upload.values() if d is not None], default=None)
+            if ultima_data:
+                st.info(f"📅 Ficheiro atualizado a {ultima_data.strftime('%d/%m %H:%M')}")
+            else:
+                st.warning("⚠️ Ficheiros sem data de atualização válida.")
+        else:
+            st.info("📅 Nenhum ficheiro carregado do GitHub.")
 
 
     st.sidebar.header("🎚️ Filtros")
