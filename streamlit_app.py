@@ -31,7 +31,7 @@ def format_pt(value):
 def valor_liquido(row):
     if pd.isna(row['venda_bruta']):
         return 0
-    doc = str(row['documento']).upper()
+    doc = str(row['Doc.']).upper()
     debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE', 'ND'}
     return -row['venda_bruta'] if doc in debitos else row['venda_bruta']
 
