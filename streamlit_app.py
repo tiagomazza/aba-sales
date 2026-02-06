@@ -270,30 +270,47 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[1]:
-        top = df_filt.groupby('FAMILIA').valor_vendido.sum().nlargest(15).reset_index()
+        # Agrupamento completo para pizza
+        grup_fam = df_filt.groupby('FAMILIA').valor_vendido.sum().reset_index()
+        # Top 15 para barras
+        top = grup_fam.nlargest(15, 'valor_vendido')
         fig = px.bar(top, x='FAMILIA', y='valor_vendido', title="Top Famílias")
         st.plotly_chart(fig, use_container_width=True)
 
-        # 🥧 Gráfico de pizza
-        fig_pie = px.pie(top, names='FAMILIA', values='valor_vendido', title="Participação por Família")
+        fig_pie = px.pie(
+            grup_fam,
+            names='FAMILIA',
+            values='valor_vendido',
+            title="Participação por Família (100%)"
+        )
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[2]:
-        top = df_filt.groupby('vendedor').valor_vendido.sum().nlargest(15).reset_index()
+        grup_vend = df_filt.groupby('vendedor').valor_vendido.sum().reset_index()
+        top = grup_vend.nlargest(15, 'valor_vendido')
         fig = px.bar(top, x='vendedor', y='valor_vendido', title="Top Vendedores")
         st.plotly_chart(fig, use_container_width=True)
 
-        # 🥧 Gráfico de pizza
-        fig_pie = px.pie(top, names='vendedor', values='valor_vendido', title="Participação por Vendedor")
+        fig_pie = px.pie(
+            grup_vend,
+            names='vendedor',
+            values='valor_vendido',
+            title="Participação por Vendedor (100%)"
+        )
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[3]:
-        top = df_filt.groupby('cliente').valor_vendido.sum().nlargest(15).reset_index()
+        grup_cli = df_filt.groupby('cliente').valor_vendido.sum().reset_index()
+        top = grup_cli.nlargest(15, 'valor_vendido')
         fig = px.bar(top, x='cliente', y='valor_vendido', title="Top Clientes")
         st.plotly_chart(fig, use_container_width=True)
 
-        # 🥧 Gráfico de pizza
-        fig_pie = px.pie(top, names='cliente', values='valor_vendido', title="Participação por Cliente")
+        fig_pie = px.pie(
+            grup_cli,
+            names='cliente',
+            values='valor_vendido',
+            title="Participação por Cliente (100%)"
+        )
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[4]:
