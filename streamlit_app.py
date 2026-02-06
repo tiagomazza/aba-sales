@@ -288,9 +288,9 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[4]:
-        linha = st.selectbox("Linhas", ['FAMILIA', 'vendedor', 'cliente'])
-        colu = st.selectbox("Colunas", ['Nenhuma', 'FAMILIA', 'vendedor'])
-        func = st.selectbox("Agg", ['sum', 'mean'])
+        linha = st.selectbox("➖Linhas", ['FAMILIA', 'vendedor', 'cliente'])
+        colu = st.selectbox("➕Colunas", ['vendedor','Nenhuma', 'FAMILIA'])
+        func = st.selectbox("Agregador", ['sum', 'mean'])
         if colu == 'Nenhuma':
             pivot = df_filt.pivot_table(index=linha, values='valor_vendido', aggfunc=func)
         else:
