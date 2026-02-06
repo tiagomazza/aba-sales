@@ -185,7 +185,7 @@ def main():
     df = st.session_state.df
     datas_upload = st.session_state.get('datas_upload', {})
 
-    #Data de atualização
+    # Data de atualização
     if datas_upload:
         ultima_data = max([d for d in datas_upload.values() if d is not None], default=None)
         if ultima_data:
@@ -201,8 +201,7 @@ def main():
     ontem = hoje - timedelta(days=1)
     inicio_mes = hoje.replace(day=1)
 
-    # intervalo padrão: primeiro dia do mês até ontem
-    date_range = st.sidebar.date_input("📅Data", (inicio_mes.date(), ontem.date()))
+    date_range = st.sidebar.date_input("📅 Data", (inicio_mes.date(), ontem.date()))
 
     df_filt = df.copy()
     if len(date_range) == 2:
@@ -211,11 +210,10 @@ def main():
             (df_filt.data.dt.date <= date_range[1])
         ]
 
-    # Filtros com pré-seleção
     vendedores_unicos = sorted(df_filt.vendedor.dropna().unique())
     pre_vend = ['VT', 'OC', 'DB', 'HR', 'AB', 'FL']
     vendedor = st.sidebar.multiselect(
-        "🦸Vendedor",
+        "🦸 Vendedor",
         options=vendedores_unicos,
         default=[v for v in pre_vend if v in vendedores_unicos]
     )
@@ -223,14 +221,13 @@ def main():
     docs_unicos = sorted(df_filt.documento.dropna().unique())
     pre_docs = ['FT', 'FTP', 'NC']
     doc_filter = st.sidebar.multiselect(
-        "📄Documento",
+        "📄 Documento",
         options=docs_unicos,
         default=[d for d in pre_docs if d in docs_unicos]
     )
 
-    familia = st.sidebar.multiselect("Ⓜ️Família", sorted(df_filt.FAMILIA.dropna().unique()))
+    familia = st.sidebar.multiselect("Ⓜ️ Família", sorted(df_filt.FAMILIA.dropna().unique()))
 
-    # Aplicação dos filtros
     if vendedor:
         df_filt = df_filt[df_filt.vendedor.isin(vendedor)]
     if doc_filter:
@@ -259,7 +256,7 @@ def main():
         st.metric("💳 Ticket médio", f"€{format_pt(ticket)}")
 
     # Gráficos
-    tipo = st.sidebar.selectbox("📊Gráfico", ["Valor Vendido", "Clientes movimentados"])
+    tipo = st.sidebar.selectbox("📊 Gráfico", ["Valor Vendido", "Clientes movimentados"])
     tabs = st.tabs(["📈 Dia", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
 
     with tabs[0]:
@@ -277,33 +274,42 @@ def main():
         fig = px.bar(top, x='FAMILIA', y='valor_vendido', title="Top Famílias")
         st.plotly_chart(fig, use_container_width=True)
 
+        # 🥧 Gráfico de pizza
+        fig_pie = px.pie(top, names='FAMILIA', values='valor_vendido', title="Participação por Família")
+        st.plotly_chart(fig_pie, use_container_width=True)
+
     with tabs[2]:
         top = df_filt.groupby('vendedor').valor_vendido.sum().nlargest(15).reset_index()
         fig = px.bar(top, x='vendedor', y='valor_vendido', title="Top Vendedores")
         st.plotly_chart(fig, use_container_width=True)
+
+        # 🥧 Gráfico de pizza
+        fig_pie = px.pie(top, names='vendedor', values='valor_vendido', title="Participação por Vendedor")
+        st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[3]:
         top = df_filt.groupby('cliente').valor_vendido.sum().nlargest(15).reset_index()
         fig = px.bar(top, x='cliente', y='valor_vendido', title="Top Clientes")
         st.plotly_chart(fig, use_container_width=True)
 
+        # 🥧 Gráfico de pizza
+        fig_pie = px.pie(top, names='cliente', values='valor_vendido', title="Participação por Cliente")
+        st.plotly_chart(fig_pie, use_container_width=True)
+
     with tabs[4]:
         linha = st.selectbox("➖ Linhas", ['FAMILIA', 'vendedor', 'cliente'])
         colu = st.selectbox("➕ Colunas", ['vendedor', 'Nenhuma', 'FAMILIA'])
 
-        # 🔄 Mapeamento amigável do agregador
         func_label = st.selectbox("🔢 Agregador", ['Soma', 'Média'])
         func_map = {'Soma': 'sum', 'Média': 'mean'}
         func = func_map[func_label]
 
-        # Pivot com função escolhida
         if colu == 'Nenhuma':
             pivot = df_filt.pivot_table(index=linha, values='valor_vendido', aggfunc=func)
         else:
             pivot = df_filt.pivot_table(index=linha, columns=colu, values='valor_vendido', aggfunc=func)
 
         st.dataframe(pivot.style.format(format_pt))
-
 
     csv = df_filt.to_csv(index=False).encode('utf-8-sig')
     st.download_button(
