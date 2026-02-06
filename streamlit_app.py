@@ -185,8 +185,7 @@ def main():
     df = st.session_state.df
     datas_upload = st.session_state.get('datas_upload', {})
 
-    # 📅 Data GitHub
-    st.markdown("### 📅 Atualização dos ficheiros")
+    #Data de atualização
     if datas_upload:
         ultima_data = max([d for d in datas_upload.values() if d is not None], default=None)
         if ultima_data:
