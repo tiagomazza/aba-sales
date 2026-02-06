@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from github import Github
 
@@ -77,7 +77,7 @@ def processar_csv(conteudo, nome_arquivo=""):
 
         df['data'] = pd.to_datetime(df['Data'], format='%d-%m-%Y', errors='coerce')
         df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA').astype(str)
-        df['documento'] = df['Doc.'].fillna('').astype(str)
+        df['documento'] = df.get('Doc.', '').fillna('').astype(str)
         df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
 
         df['cliente'] = (
@@ -164,17 +164,13 @@ def main():
     senha = st.sidebar.text_input("🔐 Senha:", type="password")
     if st.sidebar.button("🚀 Pasta projeto"):
         if senha != SENHA_CORRETA:
-            st.error("❌ Senha!")
+            st.error("❌ Senha incorreta!")
             st.stop()
 
         arquivos, df, datas_upload = carregar_csvs_pasta_local(PASTA_CSV_LOCAL)
-        if not arquivos:
-            st.error(f"❌ Sem CSV em {PASTA_CSV_LOCAL}")
-            st.stop()
         if df.empty:
             st.error("❌ Sem dados válidos")
             st.stop()
-
         st.session_state.update(df=df, arquivos=arquivos, datas_upload=datas_upload)
         st.sidebar.success(f"✅ {len(arquivos)} CSV | {len(df):,} linhas")
         st.rerun()
@@ -192,31 +188,22 @@ def main():
             st.error("❌ Sem dados")
 
     if "df" not in st.session_state:
-        st.info("👈 Senha ou upload")
+        st.info("👈 Carregue CSV ou use senha.")
         st.stop()
 
     df = st.session_state.df
     datas_upload = st.session_state.get('datas_upload', {})
-
-    # Datas GitHub
-    st.markdown("### 📅 Datas Upload")
-    if datas_upload:
-        cols = st.columns(3)
-        for i, (nome, data) in enumerate(datas_upload.items()):
-            with cols[i % 3]:
-                st.metric(
-                    nome[:25],
-                    data.strftime('%d/%m %H:%M') if data else "N/D"
-                )
-    else:
-        st.info("Sem GitHub")
 
     # ---------------------------
     # 🔧 FILTROS
     # ---------------------------
     st.sidebar.header("🔧 Filtros")
     hoje = datetime.now()
-    date_range = st.sidebar.date_input("Data", (hoje.replace(day=1).date(), hoje.date()))
+    ontem = hoje - timedelta(days=1)
+    inicio_mes = hoje.replace(day=1)
+
+    # intervalo padrão: primeiro dia do mês até ontem
+    date_range = st.sidebar.date_input("Data", (inicio_mes.date(), ontem.date()))
 
     df_filt = df.copy()
     if len(date_range) == 2:
@@ -225,24 +212,32 @@ def main():
             (df_filt.data.dt.date <= date_range[1])
         ]
 
-    familia = st.sidebar.multiselect("Família", sorted(df_filt.FAMILIA.dropna().unique()))
-    vendedor = st.sidebar.multiselect("Vendedor", sorted(df_filt.vendedor.dropna().unique()))
+    # Filtros com pré-seleção
+    vendedores_unicos = sorted(df_filt.vendedor.dropna().unique())
+    pre_vend = ['VT', 'OC', 'DB', 'HR', 'AB', 'FL']
+    vendedor = st.sidebar.multiselect(
+        "Vendedor",
+        options=vendedores_unicos,
+        default=[v for v in pre_vend if v in vendedores_unicos]
+    )
 
-    # Novo filtro de documento
     docs_unicos = sorted(df_filt.documento.dropna().unique())
-    pre_docs = ['VT', 'OC', 'DB', 'AB', 'FL', 'HR']
+    pre_docs = ['FT', 'FTP', 'NC']
     doc_filter = st.sidebar.multiselect(
         "Documento (Doc.)",
         options=docs_unicos,
         default=[d for d in pre_docs if d in docs_unicos]
     )
 
-    if familia:
-        df_filt = df_filt[df_filt.FAMILIA.isin(familia)]
+    familia = st.sidebar.multiselect("Família", sorted(df_filt.FAMILIA.dropna().unique()))
+
+    # Aplicação dos filtros
     if vendedor:
         df_filt = df_filt[df_filt.vendedor.isin(vendedor)]
     if doc_filter:
         df_filt = df_filt[df_filt.documento.isin(doc_filter)]
+    if familia:
+        df_filt = df_filt[df_filt.FAMILIA.isin(familia)]
 
     # KPIs
     st.markdown("### 🏆 KPIs")
@@ -273,6 +268,7 @@ def main():
         fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
         st.plotly_chart(fig, use_container_width=True)
 
+    # Outras abas
     with tabs[1]:
         top = df_filt.groupby('FAMILIA').valor_vendido.sum().nlargest(15).reset_index()
         fig = px.bar(top, x='FAMILIA', y='valor_vendido', title="Top Famílias")
@@ -301,11 +297,7 @@ def main():
     # Download
     st.markdown("### 💾 Export")
     csv = df_filt.to_csv(index=False).encode('utf-8-sig')
-    st.download_button(
-        "📥 CSV",
-        csv,
-        f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-    )
+    st.download_button("📥 CSV", csv, f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv")
 
 
 if __name__ == "__main__":
