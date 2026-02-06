@@ -15,6 +15,7 @@ SENHA_CORRETA = st.secrets.get("PASSWORD", "")
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 GITHUB_REPO = "tiagomazza/aba-sales"
 
+
 def format_pt(value):
     if pd.isna(value) or value == 0:
         return '0,00'
@@ -24,12 +25,14 @@ def format_pt(value):
     except:
         return str(value)
 
+
 def valor_liquido(row):
     if pd.isna(row['venda_bruta']):
         return 0
     doc = str(row['Doc.']).upper()
     debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE', 'ND'}
     return -row['venda_bruta'] if doc in debitos else row['venda_bruta']
+
 
 def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
     if not token:
@@ -52,6 +55,7 @@ def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
     except Exception as e:
         st.error(f"GitHub erro: {e}")
         return None
+
 
 def processar_csv(conteudo, nome_arquivo=""):
     try:
@@ -99,10 +103,12 @@ def processar_csv(conteudo, nome_arquivo=""):
         st.error(f"Erro CSV: {e}")
         return pd.DataFrame()
 
+
 def listar_csvs_pasta_local(pasta):
     if not os.path.isdir(pasta):
         return []
     return [f for f in os.listdir(pasta) if f.lower().endswith('.csv')]
+
 
 def carregar_csvs_pasta_local(pasta):
     arquivos = listar_csvs_pasta_local(pasta)
@@ -142,12 +148,7 @@ def carregar_csvs_pasta_local(pasta):
 
 def main():
     st.title("📊 Dashboard Vendas Líquidas")
-"""
-    if GITHUB_TOKEN:
-        st.success(f"**✅upload do ficheiroPasta:**")
-    else:
-        st.warning("⚠️ Erro ao buscar dados")
-"""
+
     st.sidebar.header("📁 Carregar ficheiros")
 
     # Senha → Pasta local
@@ -178,27 +179,24 @@ def main():
             st.error("❌ Sem dados")
 
     if "df" not in st.session_state:
-
         st.info("👈 Carregue os dados")
         st.stop()
 
     df = st.session_state.df
     datas_upload = st.session_state.get('datas_upload', {})
 
-# 📅 Data GitHub
-st.markdown("### 📅 Atualização dos ficheiros")
-
-if datas_upload:
-    # Usa a data mais recente entre os ficheiros
-    ultima_data = max([d for d in datas_upload.values() if d is not None], default=None)
-    if ultima_data:
-        st.info(f"📅 Ficheiro atualizado a {ultima_data.strftime('%d/%m %H:%M')}")
+    # 📅 Data GitHub
+    st.markdown("### 📅 Atualização dos ficheiros")
+    if datas_upload:
+        ultima_data = max([d for d in datas_upload.values() if d is not None], default=None)
+        if ultima_data:
+            st.info(f"📅 Ficheiro atualizado a {ultima_data.strftime('%d/%m %H:%M')}")
+        else:
+            st.warning("⚠️ Ficheiros sem data de atualização válida.")
     else:
-        st.warning("⚠️ Ficheiros sem data de atualização válida.")
-else:
-    st.info("📅 Nenhum ficheiro carregado do GitHub.")
+        st.info("📅 Nenhum ficheiro carregado do GitHub.")
 
-
+    # 🎚️ Filtros
     st.sidebar.header("🎚️ Filtros")
     hoje = datetime.now()
     ontem = hoje - timedelta(days=1)
@@ -250,11 +248,16 @@ else:
     vend = df_filt.vendedor.nunique()
     ticket = total / len(df_filt) if len(df_filt) else 0
 
-    with cols[0]: st.metric("💰 Total", f"€{format_pt(total)}")
-    with cols[1]: st.metric("👥 Clientes", f"{cli:,}")
-    with cols[2]: st.metric("Ⓜ️ Famílias", fam)
-    with cols[3]: st.metric("🦸 Vendedores", vend)
-    with cols[4]: st.metric("💳 Ticket", f"€{format_pt(ticket)}")
+    with cols[0]:
+        st.metric("💰 Total", f"€{format_pt(total)}")
+    with cols[1]:
+        st.metric("👥 Clientes", f"{cli:,}")
+    with cols[2]:
+        st.metric("Ⓜ️ Famílias", fam)
+    with cols[3]:
+        st.metric("🦸 Vendedores", vend)
+    with cols[4]:
+        st.metric("💳 Ticket", f"€{format_pt(ticket)}")
 
     # Gráficos
     tipo = st.sidebar.selectbox("Gráfico", ["Valor Vendido", "Clientes"])
@@ -270,7 +273,6 @@ else:
         fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
         st.plotly_chart(fig, use_container_width=True)
 
-    # Outras abas
     with tabs[1]:
         top = df_filt.groupby('FAMILIA').valor_vendido.sum().nlargest(15).reset_index()
         fig = px.bar(top, x='FAMILIA', y='valor_vendido', title="Top Famílias")
@@ -297,12 +299,12 @@ else:
         st.dataframe(pivot.style.format(format_pt))
 
     csv = df_filt.to_csv(index=False).encode('utf-8-sig')
-
     st.download_button(
         "💾 Exportar CSV",
         csv,
         f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
     )
+
 
 if __name__ == "__main__":
     main()
