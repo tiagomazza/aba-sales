@@ -142,12 +142,12 @@ def carregar_csvs_pasta_local(pasta):
 
 def main():
     st.title("📊 Dashboard Vendas Líquidas")
-
+"""
     if GITHUB_TOKEN:
         st.success(f"**✅upload do ficheiroPasta:**")
     else:
         st.warning("⚠️ Erro ao buscar dados")
-
+"""
     st.sidebar.header("📁 Carregar ficheiros")
 
     # Senha → Pasta local
@@ -185,18 +185,19 @@ def main():
     df = st.session_state.df
     datas_upload = st.session_state.get('datas_upload', {})
 
-    # Datas GitHub
-    st.markdown("### 📅 Datas Upload")
+    # 📅 Data GitHub
+    st.markdown("### 📅 Atualização dos ficheiros")
+
     if datas_upload:
-        cols = st.columns(3)
-        for i, (nome, data) in enumerate(datas_upload.items()):
-            with cols[i % 3]:
-                st.metric(
-                    nome[:25],
-                    data.strftime('%d/%m %H:%M') if data else "N/D"
-                )
+        # Usa a data mais recente entre os ficheiros
+        ultima_data = max([d for d in datas_upload.values() if d is not None], default=None)
+        if ultima_data:
+            st.info(f"📅 Ficheiro atualizado a {ultima_data.strftime('%d/%m %H:%M')}")
+        else:
+            st.warning("⚠️ Ficheiros sem data de atualização válida.")
     else:
-        st.info("Sem GitHub")
+        st.info("📅 Nenhum ficheiro carregado do GitHub.")
+
 
     st.sidebar.header("🎚️ Filtros")
     hoje = datetime.now()
