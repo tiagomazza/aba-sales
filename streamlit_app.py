@@ -273,7 +273,7 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
 
     with tabs[1]:
-        top = df_filt.groupby('Familia').valor_vendido.sum().nlargest(15).reset_index()
+        top = df_filt.groupby('FAMILIA').valor_vendido.sum().nlargest(15).reset_index()
         fig = px.bar(top, x='FAMILIA', y='valor_vendido', title="Top Famílias")
         st.plotly_chart(fig, use_container_width=True)
 
