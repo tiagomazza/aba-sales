@@ -249,7 +249,7 @@ def main():
     )
 
     docs_unicos = sorted(df_filt.documento.dropna().unique())
-    pre_docs = ['FT', 'FTP', 'NC']
+    pre_docs = ['FT', 'FTP', 'NC','NFI']
     doc_filter = st.sidebar.multiselect(
         "📄 Documento",
         options=docs_unicos,
