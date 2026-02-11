@@ -249,7 +249,7 @@ def main():
     )
 
     docs_unicos = sorted(df_filt.documento.dropna().unique())
-    pre_docs = ['FT', 'FTP', 'NC']
+    pre_docs = ['FT', 'FTP', 'NC','NFI']
     doc_filter = st.sidebar.multiselect(
         "📄 Documento",
         options=docs_unicos,
@@ -287,7 +287,7 @@ def main():
 
     # Gráficos
     tipo = st.sidebar.selectbox("📊 Gráfico", ["Valor Vendido", "Clientes movimentados"])
-    tabs = st.tabs(["📈 Dia", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
+    tabs = st.tabs(["📈 Diario de vendas", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
 
     with tabs[0]:
         if tipo == "Valor Vendido":
