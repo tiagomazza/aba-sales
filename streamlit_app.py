@@ -6,15 +6,13 @@ from datetime import datetime, timedelta
 import os
 from github import Github
 
-
 st.set_page_config(page_title="ABA - Sales", page_icon="📊",
-                   layout="wide", initial_sidebar_state="expanded")
+                    layout="wide", initial_sidebar_state="expanded")
 
 PASTA_CSV_LOCAL = "data"
 SENHA_CORRETA = st.secrets.get("PASSWORD", "")
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 GITHUB_REPO = "tiagomazza/aba-sales"
-
 
 def format_pt(value):
     if pd.isna(value) or value == 0:
@@ -25,14 +23,12 @@ def format_pt(value):
     except:
         return str(value)
 
-
 def valor_liquido(row):
     if pd.isna(row['venda_bruta']):
         return 0
     doc = str(row['Doc.']).upper()
     debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE', 'ND'}
     return -row['venda_bruta'] if doc in debitos else row['venda_bruta']
-
 
 def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
     if not token:
@@ -55,7 +51,6 @@ def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
     except Exception as e:
         st.error(f"GitHub erro: {e}")
         return None
-
 
 def processar_csv(conteudo, nome_arquivo=""):
     try:
@@ -103,12 +98,10 @@ def processar_csv(conteudo, nome_arquivo=""):
         st.error(f"Erro CSV: {e}")
         return pd.DataFrame()
 
-
 def listar_csvs_pasta_local(pasta):
     if not os.path.isdir(pasta):
         return []
     return [f for f in os.listdir(pasta) if f.lower().endswith('.csv')]
-
 
 def carregar_csvs_pasta_local(pasta):
     arquivos = listar_csvs_pasta_local(pasta)
@@ -145,7 +138,6 @@ def carregar_csvs_pasta_local(pasta):
     df_final = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     return arquivos, df_final, datas_upload
 
-
 def criar_pie_sem_rotulos_menores_1pc(grup_df, nome_categoria, titulo):
     """Cria gráfico de pizza mantendo TODAS fatias, mas sem rótulos < 1%"""
     total_geral = grup_df['valor_vendido'].sum()
@@ -174,7 +166,6 @@ def criar_pie_sem_rotulos_menores_1pc(grup_df, nome_categoria, titulo):
     )
     
     return fig_pie
-
 
 def main():
     st.title("📊 ABA-SALES Dashboard")
@@ -265,14 +256,17 @@ def main():
     if familia:
         df_filt = df_filt[df_filt.FAMILIA.isin(familia)]
 
-    # KPIs
+    # KPIs - ALTERAÇÃO PRINCIPAL AQUI
     st.markdown("### 🏆 KPIs")
     cols = st.columns(5)
     total = df_filt.valor_vendido.sum()
     cli = df_filt.cliente.nunique()
     fam = df_filt.FAMILIA.nunique()
     vend = df_filt.vendedor.nunique()
-    ticket = total / len(df_filt) if len(df_filt) else 0
+    
+    # ✅ NOVO CÁLCULO: Dias com pelo menos 1 venda
+    dias_com_venda = df_filt.groupby(df_filt.data.dt.date).valor_vendido.count().gt(0).sum()
+    ticket = total / dias_com_venda if dias_com_venda > 0 else 0
 
     with cols[0]:
         st.metric("💰 Total", f"€{format_pt(total)}")
@@ -285,6 +279,7 @@ def main():
     with cols[4]:
         st.metric("💳 Ticket médio", f"€{format_pt(ticket)}")
 
+    # Resto do código permanece igual...
     # Gráficos
     tipo = st.sidebar.selectbox("📊 Gráfico", ["Valor Vendido", "Clientes movimentados"])
     tabs = st.tabs(["📈 Diario de vendas", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
@@ -352,7 +347,6 @@ def main():
         csv,
         f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
     )
-
 
 if __name__ == "__main__":
     main()
