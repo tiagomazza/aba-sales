@@ -306,21 +306,30 @@ def main():
         st.info("📅 Nenhum ficheiro carregado do GitHub.")
 
 
-    # 🎚️ Filtros
+    # 🎚️ Filtros - AMBOS OS MÉTODOS DISPONÍVEIS
     st.sidebar.header("🎚️ Filtros")
     
-    # ✅ NOVO SELECTBOX DE PERÍODOS
-    periodo = st.sidebar.selectbox(
-        "📅 Períodos de análise",
-        ["Esta semana", "Este mês", "Este ano", "Semana passada", "Mês passado", "Ano passado"]
-    )
+    # ✅ MODO 1: Períodos pré-definidos (NOVO)
+    modo_filtro = st.sidebar.radio("📅 Modo de filtro:", ["Períodos", "Calendário"], index=0)
     
-    data_inicio, data_fim = get_date_range(periodo)
+    data_inicio, data_fim = None, None
     
-    if data_inicio and data_fim:
-        st.sidebar.info(f"📊 **{periodo}**: {data_inicio.strftime('%d/%m')} → {data_fim.strftime('%d/%m')}")
-    else:
-        st.sidebar.warning("Período inválido")
+    if modo_filtro == "Períodos":
+        periodo = st.sidebar.selectbox(
+            "Períodos de análise",
+            ["Esta semana", "Este mês", "Este ano", "Semana passada", "Mês passado", "Ano passado"]
+        )
+        data_inicio, data_fim = get_date_range(periodo)
+        if data_inicio and data_fim:
+            st.sidebar.info(f"📊 **{periodo}**: {data_inicio.strftime('%d/%m')} → {data_fim.strftime('%d/%m')}")
+    
+    else:  # Calendário (ANTIGO)
+        hoje = datetime.now()
+        ontem = hoje - timedelta(days=1)
+        inicio_mes = hoje.replace(day=1)
+        date_range = st.sidebar.date_input("📅 Escolha um intervalo", (inicio_mes.date(), ontem.date()))
+        if len(date_range) == 2:
+            data_inicio, data_fim = date_range[0], date_range[1]
 
 
     df_filt = df.copy()
