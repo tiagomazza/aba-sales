@@ -18,6 +18,12 @@ GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 GITHUB_REPO = "tiagomazza/aba-sales"
 
 
+# ✅ COLUNAS OBRIGATÓRIAS
+COLUNAS_OBRIGATORIAS = {
+    'Data', 'Família [Artigos]', 'Vendedor', 'Doc.', 
+    'Valor [Documentos GC Lin]', 'Terceiro', 'Nome [Clientes]'
+}
+
 
 def format_pt(value):
     if pd.isna(value) or value == 0:
@@ -29,6 +35,18 @@ def format_pt(value):
         return str(value)
 
 
+def validar_colunas(df, nome_arquivo):
+    """Valida se o CSV contém as colunas necessárias"""
+    colunas_presentes = set(df.columns.str.strip())
+    colunas_faltantes = COLUNAS_OBRIGATORIAS - colunas_presentes
+    
+    if colunas_faltantes:
+        st.error(f"❌ **{nome_arquivo}** - Colunas faltantes:")
+        for col in sorted(colunas_faltantes):
+            st.error(f"   • {col}")
+        return False
+    return True
+
 
 def valor_liquido(row):
     if pd.isna(row['venda_bruta']):
@@ -36,7 +54,6 @@ def valor_liquido(row):
     doc = str(row['Doc.']).upper()
     debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE', 'ND'}
     return -row['venda_bruta'] if doc in debitos else row['venda_bruta']
-
 
 
 def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
@@ -62,7 +79,6 @@ def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
         return None
 
 
-
 def processar_csv(conteudo, nome_arquivo=""):
     try:
         if isinstance(conteudo, bytes):
@@ -70,22 +86,22 @@ def processar_csv(conteudo, nome_arquivo=""):
         else:
             content = conteudo.read().decode('latin1') if hasattr(conteudo, 'read') else conteudo.decode('latin1')
 
-
         lines = content.split('\n')
         data_lines = [line for line in lines[1:] if line.strip() and not line.startswith('sep=')]
         csv_content = '\n'.join(data_lines)
-
 
         df = pd.read_csv(io.StringIO(csv_content), sep=',', quotechar='"',
                          encoding='latin1', on_bad_lines='skip', engine='python')
         df.columns = df.columns.str.strip().str.replace('"', '')
 
+        # ✅ VALIDAÇÃO DE COLUNAS
+        if not validar_colunas(df, nome_arquivo):
+            return pd.DataFrame()
 
         df['data'] = pd.to_datetime(df['Data'], format='%d-%m-%Y', errors='coerce')
-        df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA').astype(str)
+        df['Familia'] = df['Família [Artigos]'].fillna('SEM_FAMILIA').astype(str)  # ✅ Renomeado
         df['documento'] = df.get('Doc.', '').fillna('').astype(str)
         df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
-
 
         df['cliente'] = (
             df.get('Terceiro', pd.Series([''] * len(df)))
@@ -93,28 +109,24 @@ def processar_csv(conteudo, nome_arquivo=""):
             + ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE')
         )
 
-
         df['venda_bruta'] = pd.to_numeric(
             df['Valor [Documentos GC Lin]'].astype(str).str.replace(',', '.').str.replace('€', ''),
             errors='coerce'
         )
 
-
-        df['valor_vendido'] = df.apply(valor_liquido, axis=1)
-        df_clean = df.dropna(subset=['data', 'valor_vendido'])
+        df['valor vendido'] = df.apply(valor_liquido, axis=1)  # ✅ Renomeado
+        df_clean = df.dropna(subset=['data', 'valor vendido'])
         df_clean = df_clean[df_clean['venda_bruta'] > 0].copy()
-
 
         if 'Motivo de anulação do documento' in df_clean.columns:
             anuladas = df_clean['Motivo de anulação do documento'].notna() & \
                        (df_clean['Motivo de anulação do documento'] != '')
             df_clean = df_clean[~anuladas].copy()
 
-
         df_clean['arquivo'] = nome_arquivo
-        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'documento', 'valor_vendido', 'arquivo']]
+        return df_clean[['data', 'Familia', 'vendedor', 'cliente', 'documento', 'valor vendido', 'arquivo']]  # ✅ Renomeado
     except Exception as e:
-        st.error(f"Erro CSV: {e}")
+        st.error(f"Erro CSV {nome_arquivo}: {e}")
         return pd.DataFrame()
 
 
@@ -131,10 +143,8 @@ def carregar_csvs_pasta_local(pasta):
     if not arquivos:
         return [], pd.DataFrame(), {}
 
-
     dfs, datas_upload = [], {}
     progress_bar = st.progress(0)
-
 
     for i, nome in enumerate(arquivos):
         st.info(f"📥 {nome}")
@@ -142,29 +152,25 @@ def carregar_csvs_pasta_local(pasta):
             with open(os.path.join(pasta, nome), 'rb') as f:
                 conteudo = f.read()
 
-
             data_upload = obter_data_upload_github(nome, GITHUB_REPO, GITHUB_TOKEN)
             datas_upload[nome] = data_upload
-
 
             if data_upload:
                 st.success(f"✅ {nome}: {data_upload.strftime('%d/%m %H:%M')}")
             else:
                 st.warning(f"⚠️ {nome}: Sem data de atualização")
 
-
             df_temp = processar_csv(conteudo, nome)
             if not df_temp.empty:
                 dfs.append(df_temp)
-
+            else:
+                st.warning(f"⚠️ {nome}: Ignorado (colunas inválidas ou sem dados)")
 
         except Exception as e:
             st.error(f"❌ Erro {nome}: {e}")
 
-
         progress_bar.progress((i + 1) / len(arquivos))
     progress_bar.empty()
-
 
     df_final = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     return arquivos, df_final, datas_upload
@@ -173,12 +179,12 @@ def carregar_csvs_pasta_local(pasta):
 
 def criar_pie_sem_rotulos_menores_1pc(grup_df, nome_categoria, titulo):
     """Cria gráfico de pizza mantendo TODAS fatias, mas sem rótulos < 1%"""
-    total_geral = grup_df['valor_vendido'].sum()
+    total_geral = grup_df['valor vendido'].sum()  # ✅ Renomeado
     
     fig_pie = px.pie(
         grup_df,
         names=nome_categoria,
-        values='valor_vendido',
+        values='valor vendido',  # ✅ Renomeado
         title=titulo
     )
     
@@ -191,7 +197,7 @@ def criar_pie_sem_rotulos_menores_1pc(grup_df, nome_categoria, titulo):
         insidetextorientation='radial'
     )
     
-    # Configura hover para mostrar valores exatos
+    # ✅ Hover com símbolo €
     fig_pie.update_traces(
         hovertemplate='<b>%{label}</b><br>' +
                       'Valor: €%{value:,.0f}<br>' +
@@ -206,28 +212,23 @@ def get_date_range(periodo):
     hoje = datetime.now().date()
     
     if periodo == "Esta semana":
-        # Segunda até hoje
-        inicio_semana = hoje - timedelta(days=hoje.weekday())  # Segunda
+        inicio_semana = hoje - timedelta(days=hoje.weekday())
         return inicio_semana, hoje
     
     elif periodo == "Este mês":
-        # Dia 1 até hoje
         inicio_mes = hoje.replace(day=1)
         return inicio_mes, hoje
     
     elif periodo == "Este ano":
-        # 1º Jan até hoje
         inicio_ano = hoje.replace(month=1, day=1)
         return inicio_ano, hoje
     
     elif periodo == "Semana passada":
-        # Segunda a sexta da semana passada
-        ultima_segunda = hoje - timedelta(days=hoje.weekday() + 7)  # Segunda passada
+        ultima_segunda = hoje - timedelta(days=hoje.weekday() + 7)
         ultima_sexta = ultima_segunda + timedelta(days=4)
         return ultima_segunda, ultima_sexta
     
     elif periodo == "Mês passado":
-        # Dia 1 até último dia do mês passado
         if hoje.month == 1:
             inicio_mes_passado = (hoje.replace(year=hoje.year-1, month=12, day=1)).date()
             ultimo_dia = datetime(hoje.year-1, 12, 31).date()
@@ -241,7 +242,6 @@ def get_date_range(periodo):
         return inicio_mes_passado, ultimo_dia
     
     elif periodo == "Ano passado":
-        # 1º Jan até 31 Dez do ano passado
         inicio_ano_passado = datetime(hoje.year - 1, 1, 1).date()
         fim_ano_passado = datetime(hoje.year - 1, 12, 31).date()
         return inicio_ano_passado, fim_ano_passado
@@ -266,7 +266,7 @@ def main():
 
         arquivos, df, datas_upload = carregar_csvs_pasta_local(PASTA_CSV_LOCAL)
         if df.empty:
-            st.error("❌ Sem dados válidos")
+            st.error("❌ Sem dados válidos processados")
             st.stop()
         st.session_state.update(df=df, arquivos=arquivos, datas_upload=datas_upload)
         st.sidebar.success(f"✅ {len(arquivos)} CSV | {len(df):,} linhas")
@@ -283,7 +283,7 @@ def main():
             st.sidebar.success(f"✅ {len(uploaded)} | {len(df):,} linhas")
             st.rerun()
         else:
-            st.error("❌ Sem dados")
+            st.error("❌ Sem dados válidos")
 
 
     if "df" not in st.session_state:
@@ -306,10 +306,9 @@ def main():
         st.info("📅 Nenhum ficheiro carregado do GitHub.")
 
 
-    # 🎚️ Filtros - AMBOS OS MÉTODOS DISPONÍVEIS
+    # 🎚️ Filtros - AMBOS OS MÉTODOS
     st.sidebar.header("🎚️ Filtros")
     
-    # ✅ MODO 1: Períodos pré-definidos (NOVO)
     modo_filtro = st.sidebar.radio("📅 Modo de filtro:", ["Períodos", "Calendário"], index=0)
     
     data_inicio, data_fim = None, None
@@ -323,7 +322,7 @@ def main():
         if data_inicio and data_fim:
             st.sidebar.info(f"📊 **{periodo}**: {data_inicio.strftime('%d/%m')} → {data_fim.strftime('%d/%m')}")
     
-    else:  # Calendário (ANTIGO)
+    else:
         hoje = datetime.now()
         ontem = hoje - timedelta(days=1)
         inicio_mes = hoje.replace(day=1)
@@ -358,7 +357,8 @@ def main():
     )
 
 
-    familia = st.sidebar.multiselect("Ⓜ️ Família", sorted(df_filt.FAMILIA.dropna().unique()))
+    familias_unicas = sorted(df_filt.Familia.dropna().unique())  # ✅ Renomeado
+    familia = st.sidebar.multiselect("Ⓜ️ Familia", familias_unicas)  # ✅ Etiqueta alterada
 
 
     if vendedor:
@@ -366,19 +366,19 @@ def main():
     if doc_filter:
         df_filt = df_filt[df_filt.documento.isin(doc_filter)]
     if familia:
-        df_filt = df_filt[df_filt.FAMILIA.isin(familia)]
+        df_filt = df_filt[df_filt.Familia.isin(familia)]  # ✅ Renomeado
 
 
     # KPIs
     st.markdown("### 🏆 KPIs")
     cols = st.columns(5)
-    total = df_filt.valor_vendido.sum()
+    total = df_filt['valor vendido'].sum()  # ✅ Renomeado
     cli = df_filt.cliente.nunique()
-    fam = df_filt.FAMILIA.nunique()
+    fam = df_filt.Familia.nunique()  # ✅ Renomeado
     vend = df_filt.vendedor.nunique()
     
     # ✅ Ticket médio por dias com vendas
-    dias_com_venda = df_filt.groupby(df_filt.data.dt.date).valor_vendido.count().gt(0).sum()
+    dias_com_venda = df_filt.groupby(df_filt.data.dt.date)['valor vendido'].count().gt(0).sum()  # ✅ Renomeado
     ticket = total / dias_com_venda if dias_com_venda > 0 else 0
 
 
@@ -396,61 +396,72 @@ def main():
 
     # Gráficos
     tipo = st.sidebar.selectbox("📊 Gráfico", ["Valor Vendido", "Clientes movimentados"])
-    tabs = st.tabs(["📈 Diario de vendas", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
+    tabs = st.tabs(["📈 Diario de vendas", "Ⓜ️ Familia", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])  # ✅ Renomeado
 
 
     with tabs[0]:
         if tipo == "Valor Vendido":
-            diario = df_filt.groupby(df_filt.data.dt.date).valor_vendido.sum().reset_index()
-            fig = px.bar(diario, x='data', y='valor_vendido', title="Diário", text='valor_vendido')
+            diario = df_filt.groupby(df_filt.data.dt.date)['valor vendido'].sum().reset_index()  # ✅ Renomeado
+            fig = px.bar(diario, x='data', y='valor vendido', title="📈 Diário de Vendas", text='valor vendido')  # ✅ Renomeado + €
+            fig.update_traces(
+                texttemplate='€%{text:,.0f}', 
+                textposition='outside',
+                textfont_size=12
+            )
         else:
             diario = df_filt.groupby(df_filt.data.dt.date).cliente.nunique().reset_index()
-            fig = px.bar(diario, x='data', y='cliente', title="Clientes Diário", text='cliente')
-        fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+            fig = px.bar(diario, x='data', y='cliente', title="👥 Clientes Diário", text='cliente')
+            fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        
+        # ✅ Formatação de datas em PT
+        fig.update_layout(xaxis_title="Data", yaxis_title="Valor")
+        fig.update_xaxes(tickformat="%d/%m")
+        
         st.plotly_chart(fig, use_container_width=True)
 
 
     with tabs[1]:
         # Agrupamento completo para pizza
-        grup_fam = df_filt.groupby('FAMILIA').valor_vendido.sum().reset_index()
+        grup_fam = df_filt.groupby('Familia')['valor vendido'].sum().reset_index()  # ✅ Renomeados
         # Top 15 para barras
-        top = grup_fam.nlargest(15, 'valor_vendido')
-        fig = px.bar(top, x='FAMILIA', y='valor_vendido', title="Top Famílias")
+        top = grup_fam.nlargest(15, 'valor vendido')
+        fig = px.bar(top, x='Familia', y='valor vendido', title="🏆 Top Famílias")  # ✅ Renomeados + €
+        fig.update_traces(texttemplate='€%{text:,.0f}', textposition='outside')
         st.plotly_chart(fig, use_container_width=True)
 
 
-        # Pizza com TODAS fatias, mas SEM rótulos < 1%
-        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_fam, 'FAMILIA', "Participação por Família (100%)")
+        # Pizza com TODAS fatias
+        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_fam, 'Familia', "📊 Participação por Familia (100%)")  # ✅ Renomeado
         st.plotly_chart(fig_pie, use_container_width=True)
 
 
     with tabs[2]:
-        grup_vend = df_filt.groupby('vendedor').valor_vendido.sum().reset_index()
-        top = grup_vend.nlargest(15, 'valor_vendido')
-        fig = px.bar(top, x='vendedor', y='valor_vendido', title="Top Vendedores")
+        grup_vend = df_filt.groupby('vendedor')['valor vendido'].sum().reset_index()  # ✅ Renomeado
+        top = grup_vend.nlargest(15, 'valor vendido')
+        fig = px.bar(top, x='vendedor', y='valor vendido', title="👨‍💼 Top Vendedores")  # ✅ Renomeado + €
+        fig.update_traces(texttemplate='€%{text:,.0f}', textposition='outside')
         st.plotly_chart(fig, use_container_width=True)
 
 
-        # Pizza com TODAS fatias, mas SEM rótulos < 1%
-        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_vend, 'vendedor', "Participação por Vendedor (100%)")
+        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_vend, 'vendedor', "📊 Participação por Vendedor (100%)")
         st.plotly_chart(fig_pie, use_container_width=True)
 
 
     with tabs[3]:
-        grup_cli = df_filt.groupby('cliente').valor_vendido.sum().reset_index()
-        top = grup_cli.nlargest(15, 'valor_vendido')
-        fig = px.bar(top, x='cliente', y='valor_vendido', title="Top Clientes")
+        grup_cli = df_filt.groupby('cliente')['valor vendido'].sum().reset_index()  # ✅ Renomeado
+        top = grup_cli.nlargest(15, 'valor vendido')
+        fig = px.bar(top, x='cliente', y='valor vendido', title="🏢 Top Clientes")  # ✅ Renomeado + €
+        fig.update_traces(texttemplate='€%{text:,.0f}', textposition='outside')
         st.plotly_chart(fig, use_container_width=True)
 
 
-        # Pizza com TODAS fatias, mas SEM rótulos < 1%
-        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_cli, 'cliente', "Participação por Cliente (100%)")
+        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_cli, 'cliente', "📊 Participação por Cliente (100%)")
         st.plotly_chart(fig_pie, use_container_width=True)
 
 
     with tabs[4]:
-        linha = st.selectbox("➖ Linhas", ['FAMILIA', 'vendedor', 'cliente'])
-        colu = st.selectbox("➕ Colunas", ['vendedor', 'Nenhuma', 'FAMILIA'])
+        linha = st.selectbox("➖ Linhas", ['Familia', 'vendedor', 'cliente'])  # ✅ Renomeado
+        colu = st.selectbox("➕ Colunas", ['vendedor', 'Nenhuma', 'Familia'])  # ✅ Renomeado
 
 
         func_label = st.selectbox("🔢 Agregador", ['Soma', 'Média'])
@@ -459,9 +470,9 @@ def main():
 
 
         if colu == 'Nenhuma':
-            pivot = df_filt.pivot_table(index=linha, values='valor_vendido', aggfunc=func)
+            pivot = df_filt.pivot_table(index=linha, values='valor vendido', aggfunc=func)  # ✅ Renomeado
         else:
-            pivot = df_filt.pivot_table(index=linha, columns=colu, values='valor_vendido', aggfunc=func)
+            pivot = df_filt.pivot_table(index=linha, columns=colu, values='valor vendido', aggfunc=func)  # ✅ Renomeado
 
 
         st.dataframe(pivot.style.format(format_pt))
