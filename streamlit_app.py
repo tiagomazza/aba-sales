@@ -3,127 +3,156 @@ import pandas as pd
 import plotly.express as px
 import io
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import os
 from github import Github
 
-
-
-st.set_page_config(page_title="ABA - Sales", page_icon="📊",
-                    layout="wide", initial_sidebar_state="expanded")
-
+st.set_page_config(
+    page_title="ABA - Sales",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 PASTA_CSV_LOCAL = "data"
 SENHA_CORRETA = st.secrets.get("PASSWORD", "")
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 GITHUB_REPO = "tiagomazza/aba-sales"
+TZ_PT = ZoneInfo("Europe/Lisbon")
 
+
+def now_pt():
+    return datetime.now(TZ_PT)
 
 
 def format_pt(value):
     if pd.isna(value) or value == 0:
-        return '0,00'
+        return "0,00"
     try:
-        s = f"{abs(value):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        s = f"{abs(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         return f"{'-' if value < 0 else ''}{s}"
-    except:
+    except Exception:
         return str(value)
 
 
-
 def valor_liquido(row):
-    if pd.isna(row['venda_bruta']):
+    if pd.isna(row["venda_bruta"]):
         return 0
-    doc = str(row['Doc.']).upper()
-    debitos = {'NC', 'NCA', 'NCM', 'NCS', 'NFI', 'QUE', 'ND'}
-    return -row['venda_bruta'] if doc in debitos else row['venda_bruta']
+    doc = str(row["Doc."]).upper()
+    debitos = {"NC", "NCA", "NCM", "NCS", "NFI", "QUE", "ND"}
+    return -row["venda_bruta"] if doc in debitos else row["venda_bruta"]
 
+
+def converter_para_hora_pt(dt):
+    if dt is None:
+        return None
+    if getattr(dt, "tzinfo", None) is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(TZ_PT)
 
 
 def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
     if not token:
         return None
+
     try:
         g = Github(token)
         repo = g.get_repo(repo_nome)
         caminhos = [nome_arquivo, f"data/{nome_arquivo}"]
+
         for caminho in caminhos:
             try:
                 conteudo = repo.get_contents(caminho)
-                if hasattr(conteudo, 'last_commit') and conteudo.last_commit:
-                    return conteudo.last_commit.commit.committer.date.replace(tzinfo=None)
+
+                if hasattr(conteudo, "last_commit") and conteudo.last_commit:
+                    dt_utc = conteudo.last_commit.commit.committer.date
+                    return converter_para_hora_pt(dt_utc)
+
                 commits = list(repo.get_commits(path=caminho))[:1]
                 if commits:
-                    return commits[0].commit.committer.date.replace(tzinfo=None)
-            except:
+                    dt_utc = commits[0].commit.committer.date
+                    return converter_para_hora_pt(dt_utc)
+
+            except Exception:
                 continue
+
         return None
+
     except Exception as e:
         st.error(f"GitHub erro: {e}")
         return None
 
 
-
 def processar_csv(conteudo, nome_arquivo=""):
     try:
         if isinstance(conteudo, bytes):
-            content = conteudo.decode('latin1')
+            content = conteudo.decode("latin1")
         else:
-            content = conteudo.read().decode('latin1') if hasattr(conteudo, 'read') else conteudo.decode('latin1')
+            content = conteudo.read().decode("latin1") if hasattr(conteudo, "read") else conteudo.decode("latin1")
 
+        lines = content.split("\n")
+        data_lines = [line for line in lines[1:] if line.strip() and not line.startswith("sep=")]
+        csv_content = "\n".join(data_lines)
 
-        lines = content.split('\n')
-        data_lines = [line for line in lines[1:] if line.strip() and not line.startswith('sep=')]
-        csv_content = '\n'.join(data_lines)
-
-
-        df = pd.read_csv(io.StringIO(csv_content), sep=',', quotechar='"',
-                         encoding='latin1', on_bad_lines='skip', engine='python')
-        df.columns = df.columns.str.strip().str.replace('"', '')
-
-
-        df['data'] = pd.to_datetime(df['Data'], format='%d-%m-%Y', errors='coerce')
-        df['FAMILIA'] = df['Família [Artigos]'].fillna('SEM_FAMILIA').astype(str)
-        df['documento'] = df.get('Doc.', '').fillna('').astype(str)
-        df['vendedor'] = df['Vendedor'].fillna('SEM_VENDEDOR').astype(str)
-
-
-        df['cliente'] = (
-            df.get('Terceiro', pd.Series([''] * len(df)))
-            .fillna('').astype(str).str.replace('=', '').str.replace('"', '')
-            + ' - ' + df['Nome [Clientes]'].fillna('SEM_CLIENTE')
+        df = pd.read_csv(
+            io.StringIO(csv_content),
+            sep=",",
+            quotechar='"',
+            encoding="latin1",
+            on_bad_lines="skip",
+            engine="python"
         )
 
+        df.columns = df.columns.str.strip().str.replace('"', "", regex=False)
 
-        df['venda_bruta'] = pd.to_numeric(
-            df['Valor [Documentos GC Lin]'].astype(str).str.replace(',', '.').str.replace('€', ''),
-            errors='coerce'
+        df["data"] = pd.to_datetime(df["Data"], format="%d-%m-%Y", errors="coerce")
+        df["FAMILIA"] = df["Família [Artigos]"].fillna("SEM_FAMILIA").astype(str)
+        df["documento"] = df.get("Doc.", pd.Series([""] * len(df))).fillna("").astype(str)
+        df["vendedor"] = df["Vendedor"].fillna("SEM_VENDEDOR").astype(str)
+
+        df["cliente"] = (
+            df.get("Terceiro", pd.Series([""] * len(df)))
+            .fillna("")
+            .astype(str)
+            .str.replace("=", "", regex=False)
+            .str.replace('"', "", regex=False)
+            + " - " +
+            df["Nome [Clientes]"].fillna("SEM_CLIENTE").astype(str)
         )
 
+        df["venda_bruta"] = pd.to_numeric(
+            df["Valor [Documentos GC Lin]"]
+            .astype(str)
+            .str.replace("€", "", regex=False)
+            .str.replace(",", ".", regex=False),
+            errors="coerce"
+        )
 
-        df['valor_vendido'] = df.apply(valor_liquido, axis=1)
-        df_clean = df.dropna(subset=['data', 'valor_vendido'])
-        df_clean = df_clean[df_clean['venda_bruta'] > 0].copy()
+        df["valor_vendido"] = df.apply(valor_liquido, axis=1)
 
+        df_clean = df.dropna(subset=["data", "valor_vendido"]).copy()
+        df_clean = df_clean[df_clean["venda_bruta"] > 0].copy()
 
-        if 'Motivo de anulação do documento' in df_clean.columns:
-            anuladas = df_clean['Motivo de anulação do documento'].notna() & \
-                       (df_clean['Motivo de anulação do documento'] != '')
+        if "Motivo de anulação do documento" in df_clean.columns:
+            anuladas = (
+                df_clean["Motivo de anulação do documento"].notna() &
+                (df_clean["Motivo de anulação do documento"].astype(str).str.strip() != "")
+            )
             df_clean = df_clean[~anuladas].copy()
 
+        df_clean["arquivo"] = nome_arquivo
 
-        df_clean['arquivo'] = nome_arquivo
-        return df_clean[['data', 'FAMILIA', 'vendedor', 'cliente', 'documento', 'valor_vendido', 'arquivo']]
+        return df_clean[["data", "FAMILIA", "vendedor", "cliente", "documento", "valor_vendido", "arquivo"]]
+
     except Exception as e:
         st.error(f"Erro CSV: {e}")
         return pd.DataFrame()
 
 
-
 def listar_csvs_pasta_local(pasta):
     if not os.path.isdir(pasta):
         return []
-    return [f for f in os.listdir(pasta) if f.lower().endswith('.csv')]
-
+    return [f for f in os.listdir(pasta) if f.lower().endswith(".csv")]
 
 
 def carregar_csvs_pasta_local(pasta):
@@ -131,189 +160,257 @@ def carregar_csvs_pasta_local(pasta):
     if not arquivos:
         return [], pd.DataFrame(), {}
 
-
-    dfs, datas_upload = [], {}
+    dfs = []
+    datas_upload = {}
     progress_bar = st.progress(0)
-
 
     for i, nome in enumerate(arquivos):
         st.info(f"📥 {nome}")
         try:
-            with open(os.path.join(pasta, nome), 'rb') as f:
+            with open(os.path.join(pasta, nome), "rb") as f:
                 conteudo = f.read()
-
 
             data_upload = obter_data_upload_github(nome, GITHUB_REPO, GITHUB_TOKEN)
             datas_upload[nome] = data_upload
 
-
             if data_upload:
-                st.success(f"✅ {nome}: {data_upload.strftime('%d/%m %H:%M')}")
+                st.success(f"✅ {nome}: {data_upload.strftime('%d/%m/%Y %H:%M')}")
             else:
                 st.warning(f"⚠️ {nome}: Sem data de atualização")
-
 
             df_temp = processar_csv(conteudo, nome)
             if not df_temp.empty:
                 dfs.append(df_temp)
 
-
         except Exception as e:
             st.error(f"❌ Erro {nome}: {e}")
 
-
         progress_bar.progress((i + 1) / len(arquivos))
+
     progress_bar.empty()
-
-
     df_final = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     return arquivos, df_final, datas_upload
 
 
-
 def criar_pie_sem_rotulos_menores_1pc(grup_df, nome_categoria, titulo):
-    """Cria gráfico de pizza mantendo TODAS fatias, mas sem rótulos < 1%"""
-    total_geral = grup_df['valor_vendido'].sum()
-    
     fig_pie = px.pie(
         grup_df,
         names=nome_categoria,
-        values='valor_vendido',
+        values="valor_vendido",
         title=titulo
     )
-    
-    # Remove rótulos de fatias < 1%
+
     fig_pie.update_traces(
-        textinfo='percent+label',
+        textinfo="percent+label",
         textfont_size=12,
-        textposition='inside',
-        texttemplate='%{label}<br>%{percent:.1%}',
-        insidetextorientation='radial'
+        textposition="inside",
+        texttemplate="%{label}<br>%{percent:.1%}",
+        insidetextorientation="radial"
     )
-    
-    # Configura hover para mostrar valores exatos
+
     fig_pie.update_traces(
-        hovertemplate='<b>%{label}</b><br>' +
-                      'Valor: €%{value:,.0f}<br>' +
-                      'Percentual: %{percent:.1%}<extra></extra>'
+        hovertemplate="<b>%{label}</b><br>" +
+                      "Valor: €%{value:,.0f}<br>" +
+                      "Percentual: %{percent:.1%}<extra></extra>"
     )
-    
+
     return fig_pie
 
 
 def get_date_range(periodo):
-    """Retorna as datas inicial e final baseado no período selecionado"""
-    hoje = datetime.now().date()
-    
+    hoje = now_pt().date()
+
     if periodo == "Esta semana":
-        # Segunda até hoje
-        inicio_semana = hoje - timedelta(days=hoje.weekday())  # Segunda
+        inicio_semana = hoje - timedelta(days=hoje.weekday())
         return inicio_semana, hoje
-    
+
     elif periodo == "Este mês":
-        # Dia 1 até hoje
         inicio_mes = hoje.replace(day=1)
         return inicio_mes, hoje
-    
+
     elif periodo == "Este ano":
-        # 1º Jan até hoje
         inicio_ano = hoje.replace(month=1, day=1)
         return inicio_ano, hoje
-    
+
     elif periodo == "Semana passada":
-        # Segunda a sexta da semana passada
-        ultima_segunda = hoje - timedelta(days=hoje.weekday() + 7)  # Segunda passada
+        ultima_segunda = hoje - timedelta(days=hoje.weekday() + 7)
         ultima_sexta = ultima_segunda + timedelta(days=4)
         return ultima_segunda, ultima_sexta
-    
+
     elif periodo == "Mês passado":
-        # Dia 1 até último dia do mês passado
         if hoje.month == 1:
-            inicio_mes_passado = (hoje.replace(year=hoje.year-1, month=12, day=1)).date()
-            ultimo_dia = datetime(hoje.year-1, 12, 31).date()
+            inicio_mes_passado = datetime(hoje.year - 1, 12, 1).date()
+            ultimo_dia = datetime(hoje.year - 1, 12, 31).date()
         else:
-            mes_passado = hoje.month - 1
-            ano = hoje.year if mes_passado > 0 else hoje.year - 1
-            inicio_mes_passado = hoje.replace(month=mes_passado, day=1).date()
-            proximo_mes = mes_passado + 1 if mes_passado < 12 else 1
-            proximo_ano = ano if mes_passado < 12 else ano + 1
-            ultimo_dia = (hoje.replace(month=proximo_mes, year=proximo_ano, day=1) - timedelta(days=1)).date()
+            inicio_mes_passado = datetime(hoje.year, hoje.month - 1, 1).date()
+            primeiro_mes_atual = datetime(hoje.year, hoje.month, 1).date()
+            ultimo_dia = primeiro_mes_atual - timedelta(days=1)
         return inicio_mes_passado, ultimo_dia
-    
+
     elif periodo == "Ano passado":
-        # 1º Jan até 31 Dez do ano passado
         inicio_ano_passado = datetime(hoje.year - 1, 1, 1).date()
         fim_ano_passado = datetime(hoje.year - 1, 12, 31).date()
         return inicio_ano_passado, fim_ano_passado
-    
+
     return None, None
+
+
+def formatar_label_periodo(periodos, granularidade):
+    if granularidade == "Dia":
+        return pd.to_datetime(periodos).strftime("%d/%m/%Y")
+
+    if granularidade == "Semana":
+        labels = []
+        for p in periodos:
+            inicio = p.start_time.date()
+            fim = p.end_time.date()
+            labels.append(f"{inicio.strftime('%d/%m')} → {fim.strftime('%d/%m')}")
+        return labels
+
+    if granularidade == "Mês":
+        return [p.strftime("%m/%Y") for p in periodos]
+
+    if granularidade == "Trimestre":
+        return [f"T{p.quarter}/{p.year}" for p in periodos]
+
+    return periodos.astype(str)
+
+
+def agregar_vendas(df_base, granularidade):
+    df_plot = df_base.copy()
+    df_plot["data"] = pd.to_datetime(df_plot["data"], errors="coerce")
+    df_plot = df_plot.dropna(subset=["data"])
+
+    if granularidade == "Dia":
+        grupo = df_plot.groupby(df_plot["data"].dt.date, as_index=False)["valor_vendido"].sum()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = pd.to_datetime(grupo["periodo"])
+        grupo["label"] = grupo["ordem"].dt.strftime("%d/%m/%Y")
+
+    elif granularidade == "Semana":
+        grupo = df_plot.groupby(df_plot["data"].dt.to_period("W-MON"))["valor_vendido"].sum().reset_index()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = grupo["periodo"].dt.start_time
+        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Semana")
+
+    elif granularidade == "Mês":
+        grupo = df_plot.groupby(df_plot["data"].dt.to_period("M"))["valor_vendido"].sum().reset_index()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = grupo["periodo"].dt.start_time
+        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Mês")
+
+    elif granularidade == "Trimestre":
+        grupo = df_plot.groupby(df_plot["data"].dt.to_period("Q"))["valor_vendido"].sum().reset_index()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = grupo["periodo"].dt.start_time
+        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Trimestre")
+
+    else:
+        grupo = df_plot.groupby(df_plot["data"].dt.date, as_index=False)["valor_vendido"].sum()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = pd.to_datetime(grupo["periodo"])
+        grupo["label"] = grupo["ordem"].dt.strftime("%d/%m/%Y")
+
+    return grupo.sort_values("ordem")
+
+
+def agregar_clientes(df_base, granularidade):
+    df_plot = df_base.copy()
+    df_plot["data"] = pd.to_datetime(df_plot["data"], errors="coerce")
+    df_plot = df_plot.dropna(subset=["data"])
+
+    if granularidade == "Dia":
+        grupo = df_plot.groupby(df_plot["data"].dt.date)["cliente"].nunique().reset_index()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = pd.to_datetime(grupo["periodo"])
+        grupo["label"] = grupo["ordem"].dt.strftime("%d/%m/%Y")
+
+    elif granularidade == "Semana":
+        grupo = df_plot.groupby(df_plot["data"].dt.to_period("W-MON"))["cliente"].nunique().reset_index()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = grupo["periodo"].dt.start_time
+        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Semana")
+
+    elif granularidade == "Mês":
+        grupo = df_plot.groupby(df_plot["data"].dt.to_period("M"))["cliente"].nunique().reset_index()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = grupo["periodo"].dt.start_time
+        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Mês")
+
+    elif granularidade == "Trimestre":
+        grupo = df_plot.groupby(df_plot["data"].dt.to_period("Q"))["cliente"].nunique().reset_index()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = grupo["periodo"].dt.start_time
+        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Trimestre")
+
+    else:
+        grupo = df_plot.groupby(df_plot["data"].dt.date)["cliente"].nunique().reset_index()
+        grupo.columns = ["periodo", "valor"]
+        grupo["ordem"] = pd.to_datetime(grupo["periodo"])
+        grupo["label"] = grupo["ordem"].dt.strftime("%d/%m/%Y")
+
+    return grupo.sort_values("ordem")
 
 
 def main():
     st.title("📊 ABA-SALES Dashboard")
 
-
     st.sidebar.header("🗃️ Carregar ficheiros")
 
-
-    # Senha → Pasta local
     senha = st.sidebar.text_input("🔐 Senha:", type="password")
     if st.sidebar.button("🚀 Carregar dados"):
         if senha != SENHA_CORRETA:
             st.error("❌ Senha incorreta!")
             st.stop()
 
-
         arquivos, df, datas_upload = carregar_csvs_pasta_local(PASTA_CSV_LOCAL)
+
         if df.empty:
             st.error("❌ Sem dados válidos")
             st.stop()
+
         st.session_state.update(df=df, arquivos=arquivos, datas_upload=datas_upload)
         st.sidebar.success(f"✅ {len(arquivos)} CSV | {len(df):,} linhas")
         st.rerun()
 
-
-    # Upload manual
     uploaded = st.sidebar.file_uploader("📁 Upload manual:", type="csv", accept_multiple_files=True)
     if uploaded:
         dfs = [processar_csv(f, f.name) for f in uploaded]
         df = pd.concat([d for d in dfs if not d.empty], ignore_index=True)
+
         if not df.empty:
-            st.session_state.update(df=df, arquivos=[f.name for f in uploaded], datas_upload={})
+            st.session_state.update(
+                df=df,
+                arquivos=[f.name for f in uploaded],
+                datas_upload={}
+            )
             st.sidebar.success(f"✅ {len(uploaded)} | {len(df):,} linhas")
             st.rerun()
         else:
             st.error("❌ Sem dados")
 
-
     if "df" not in st.session_state:
         st.info("👈 Carregue os dados")
         st.stop()
 
-
     df = st.session_state.df
-    datas_upload = st.session_state.get('datas_upload', {})
+    datas_upload = st.session_state.get("datas_upload", {})
 
-
-    # Data de atualização
     if datas_upload:
         ultima_data = max([d for d in datas_upload.values() if d is not None], default=None)
         if ultima_data:
-            st.info(f"📅 Ficheiro atualizado a {ultima_data.strftime('%d/%m %H:%M')}")
+            st.info(f"📅 Ficheiro atualizado a {ultima_data.strftime('%d/%m/%Y %H:%M')} (hora PT)")
         else:
             st.warning("⚠️ Ficheiros sem data de atualização válida.")
     else:
         st.info("📅 Nenhum ficheiro carregado do GitHub.")
 
-
-    # 🎚️ Filtros - AMBOS OS MÉTODOS DISPONÍVEIS
     st.sidebar.header("🎚️ Filtros")
-    
-    # ✅ MODO 1: Períodos pré-definidos (NOVO)
+
     modo_filtro = st.sidebar.radio("📅 Modo de filtro:", ["Períodos", "Calendário"], index=0)
-    
+
     data_inicio, data_fim = None, None
-    
+
     if modo_filtro == "Períodos":
         periodo = st.sidebar.selectbox(
             "Períodos de análise",
@@ -321,66 +418,67 @@ def main():
         )
         data_inicio, data_fim = get_date_range(periodo)
         if data_inicio and data_fim:
-            st.sidebar.info(f"📊 **{periodo}**: {data_inicio.strftime('%d/%m')} → {data_fim.strftime('%d/%m')}")
-    
-    else:  # Calendário (ANTIGO)
-        hoje = datetime.now()
+            st.sidebar.info(f"📊 {periodo}: {data_inicio.strftime('%d/%m')} → {data_fim.strftime('%d/%m')}")
+    else:
+        hoje = now_pt()
         ontem = hoje - timedelta(days=1)
         inicio_mes = hoje.replace(day=1)
         date_range = st.sidebar.date_input("📅 Escolha um intervalo", (inicio_mes.date(), ontem.date()))
         if len(date_range) == 2:
             data_inicio, data_fim = date_range[0], date_range[1]
 
+    granularidade = st.sidebar.selectbox(
+        "🗓️ Agrupar gráficos por",
+        ["Dia", "Semana", "Mês", "Trimestre"],
+        index=0
+    )
 
     df_filt = df.copy()
+
     if data_inicio and data_fim:
         df_filt = df_filt[
-            (df_filt.data.dt.date >= data_inicio) &
-            (df_filt.data.dt.date <= data_fim)
+            (df_filt["data"].dt.date >= data_inicio) &
+            (df_filt["data"].dt.date <= data_fim)
         ]
 
-
-    vendedores_unicos = sorted(df_filt.vendedor.dropna().unique())
-    pre_vend = ['VT', 'OC', 'DB', 'HR', 'AB', 'FL']
+    vendedores_unicos = sorted(df_filt["vendedor"].dropna().unique())
+    pre_vend = ["VT", "OC", "DB", "HR", "AB", "FL"]
     vendedor = st.sidebar.multiselect(
         "🦸 Vendedor",
         options=vendedores_unicos,
         default=[v for v in pre_vend if v in vendedores_unicos]
     )
 
-
-    docs_unicos = sorted(df_filt.documento.dropna().unique())
-    pre_docs = ['FT', 'FTP', 'NC','NFI']
+    docs_unicos = sorted(df_filt["documento"].dropna().unique())
+    pre_docs = ["FT", "FTP", "NC", "NFI"]
     doc_filter = st.sidebar.multiselect(
         "📄 Documento",
         options=docs_unicos,
         default=[d for d in pre_docs if d in docs_unicos]
     )
 
-
-    familia = st.sidebar.multiselect("Ⓜ️ Família", sorted(df_filt.FAMILIA.dropna().unique()))
-
+    familia = st.sidebar.multiselect(
+        "Ⓜ️ Família",
+        sorted(df_filt["FAMILIA"].dropna().unique())
+    )
 
     if vendedor:
-        df_filt = df_filt[df_filt.vendedor.isin(vendedor)]
+        df_filt = df_filt[df_filt["vendedor"].isin(vendedor)]
     if doc_filter:
-        df_filt = df_filt[df_filt.documento.isin(doc_filter)]
+        df_filt = df_filt[df_filt["documento"].isin(doc_filter)]
     if familia:
-        df_filt = df_filt[df_filt.FAMILIA.isin(familia)]
+        df_filt = df_filt[df_filt["FAMILIA"].isin(familia)]
 
-
-    # KPIs
     st.markdown("### 🏆 KPIs")
     cols = st.columns(5)
-    total = df_filt.valor_vendido.sum()
-    cli = df_filt.cliente.nunique()
-    fam = df_filt.FAMILIA.nunique()
-    vend = df_filt.vendedor.nunique()
-    
-    # ✅ Ticket médio por dias com vendas
-    dias_com_venda = df_filt.groupby(df_filt.data.dt.date).valor_vendido.count().gt(0).sum()
-    ticket = total / dias_com_venda if dias_com_venda > 0 else 0
 
+    total = df_filt["valor_vendido"].sum()
+    cli = df_filt["cliente"].nunique()
+    fam = df_filt["FAMILIA"].nunique()
+    vend = df_filt["vendedor"].nunique()
+
+    dias_com_venda = df_filt.groupby(df_filt["data"].dt.date)["valor_vendido"].count().gt(0).sum()
+    ticket = total / dias_com_venda if dias_com_venda > 0 else 0
 
     with cols[0]:
         st.metric("💰 Total", f"€{format_pt(total)}")
@@ -393,87 +491,98 @@ def main():
     with cols[4]:
         st.metric("💳 Ticket médio", f"€{format_pt(ticket)}")
 
-
-    # Gráficos
     tipo = st.sidebar.selectbox("📊 Gráfico", ["Valor Vendido", "Clientes movimentados"])
-    tabs = st.tabs(["📈 Diario de vendas", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
-
+    tabs = st.tabs(["📈 Diário de vendas", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
 
     with tabs[0]:
-        if tipo == "Valor Vendido":
-            diario = df_filt.groupby(df_filt.data.dt.date).valor_vendido.sum().reset_index()
-            fig = px.bar(diario, x='data', y='valor_vendido', title="Diário", text='valor_vendido')
+        if df_filt.empty:
+            st.warning("Sem dados para exibir no gráfico.")
         else:
-            diario = df_filt.groupby(df_filt.data.dt.date).cliente.nunique().reset_index()
-            fig = px.bar(diario, x='data', y='cliente', title="Clientes Diário", text='cliente')
-        fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
-        st.plotly_chart(fig, use_container_width=True)
+            if tipo == "Valor Vendido":
+                graf_df = agregar_vendas(df_filt, granularidade)
+                fig = px.bar(
+                    graf_df,
+                    x="label",
+                    y="valor",
+                    title=f"Valor vendido por {granularidade}",
+                    text="valor"
+                )
+                fig.update_yaxes(title="Valor Vendido")
+            else:
+                graf_df = agregar_clientes(df_filt, granularidade)
+                fig = px.bar(
+                    graf_df,
+                    x="label",
+                    y="valor",
+                    title=f"Clientes movimentados por {granularidade}",
+                    text="valor"
+                )
+                fig.update_yaxes(title="Clientes")
 
+            fig.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
+            fig.update_xaxes(title="Período")
+            st.plotly_chart(fig, use_container_width=True)
 
     with tabs[1]:
-        # Agrupamento completo para pizza
-        grup_fam = df_filt.groupby('FAMILIA').valor_vendido.sum().reset_index()
-        # Top 15 para barras
-        top = grup_fam.nlargest(15, 'valor_vendido')
-        fig = px.bar(top, x='FAMILIA', y='valor_vendido', title="Top Famílias")
-        st.plotly_chart(fig, use_container_width=True)
+        if df_filt.empty:
+            st.warning("Sem dados para exibir.")
+        else:
+            grup_fam = df_filt.groupby("FAMILIA", as_index=False)["valor_vendido"].sum()
+            top = grup_fam.nlargest(15, "valor_vendido")
+            fig = px.bar(top, x="FAMILIA", y="valor_vendido", title="Top Famílias")
+            st.plotly_chart(fig, use_container_width=True)
 
-
-        # Pizza com TODAS fatias, mas SEM rótulos < 1%
-        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_fam, 'FAMILIA', "Participação por Família (100%)")
-        st.plotly_chart(fig_pie, use_container_width=True)
-
+            fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_fam, "FAMILIA", "Participação por Família (100%)")
+            st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[2]:
-        grup_vend = df_filt.groupby('vendedor').valor_vendido.sum().reset_index()
-        top = grup_vend.nlargest(15, 'valor_vendido')
-        fig = px.bar(top, x='vendedor', y='valor_vendido', title="Top Vendedores")
-        st.plotly_chart(fig, use_container_width=True)
+        if df_filt.empty:
+            st.warning("Sem dados para exibir.")
+        else:
+            grup_vend = df_filt.groupby("vendedor", as_index=False)["valor_vendido"].sum()
+            top = grup_vend.nlargest(15, "valor_vendido")
+            fig = px.bar(top, x="vendedor", y="valor_vendido", title="Top Vendedores")
+            st.plotly_chart(fig, use_container_width=True)
 
-
-        # Pizza com TODAS fatias, mas SEM rótulos < 1%
-        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_vend, 'vendedor', "Participação por Vendedor (100%)")
-        st.plotly_chart(fig_pie, use_container_width=True)
-
+            fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_vend, "vendedor", "Participação por Vendedor (100%)")
+            st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[3]:
-        grup_cli = df_filt.groupby('cliente').valor_vendido.sum().reset_index()
-        top = grup_cli.nlargest(15, 'valor_vendido')
-        fig = px.bar(top, x='cliente', y='valor_vendido', title="Top Clientes")
-        st.plotly_chart(fig, use_container_width=True)
+        if df_filt.empty:
+            st.warning("Sem dados para exibir.")
+        else:
+            grup_cli = df_filt.groupby("cliente", as_index=False)["valor_vendido"].sum()
+            top = grup_cli.nlargest(15, "valor_vendido")
+            fig = px.bar(top, x="cliente", y="valor_vendido", title="Top Clientes")
+            st.plotly_chart(fig, use_container_width=True)
 
-
-        # Pizza com TODAS fatias, mas SEM rótulos < 1%
-        fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_cli, 'cliente', "Participação por Cliente (100%)")
-        st.plotly_chart(fig_pie, use_container_width=True)
-
+            fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_cli, "cliente", "Participação por Cliente (100%)")
+            st.plotly_chart(fig_pie, use_container_width=True)
 
     with tabs[4]:
-        linha = st.selectbox("➖ Linhas", ['FAMILIA', 'vendedor', 'cliente'])
-        colu = st.selectbox("➕ Colunas", ['vendedor', 'Nenhuma', 'FAMILIA'])
-
-
-        func_label = st.selectbox("🔢 Agregador", ['Soma', 'Média'])
-        func_map = {'Soma': 'sum', 'Média': 'mean'}
-        func = func_map[func_label]
-
-
-        if colu == 'Nenhuma':
-            pivot = df_filt.pivot_table(index=linha, values='valor_vendido', aggfunc=func)
+        if df_filt.empty:
+            st.warning("Sem dados para exibir.")
         else:
-            pivot = df_filt.pivot_table(index=linha, columns=colu, values='valor_vendido', aggfunc=func)
+            linha = st.selectbox("➖ Linhas", ["FAMILIA", "vendedor", "cliente"])
+            colu = st.selectbox("➕ Colunas", ["vendedor", "Nenhuma", "FAMILIA"])
 
+            func_label = st.selectbox("🔢 Agregador", ["Soma", "Média"])
+            func_map = {"Soma": "sum", "Média": "mean"}
+            func = func_map[func_label]
 
-        st.dataframe(pivot.style.format(format_pt))
+            if colu == "Nenhuma":
+                pivot = df_filt.pivot_table(index=linha, values="valor_vendido", aggfunc=func)
+            else:
+                pivot = df_filt.pivot_table(index=linha, columns=colu, values="valor_vendido", aggfunc=func)
 
+            st.dataframe(pivot.style.format(format_pt), use_container_width=True)
 
-    csv = df_filt.to_csv(index=False).encode('utf-8-sig')
+    csv = df_filt.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
         "💾 Exportar CSV",
         csv,
-        f"vendas_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+        f"vendas_{now_pt().strftime('%Y%m%d_%H%M')}.csv"
     )
-
 
 
 if __name__ == "__main__":
