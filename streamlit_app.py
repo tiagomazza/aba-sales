@@ -479,17 +479,25 @@ def agregar_comparativo_ano_anterior(df_atual, df_anterior, granularidade, tipo)
         anterior["label_cmp"] = anterior["label"]
 
     elif granularidade == "Mês":
-        atual["chave"] = atual["ordem"].dt.strftime("%m")
-        anterior["chave"] = anterior["ordem"].dt.strftime("%m")
-        atual["label_cmp"] = atual["ordem"].dt.strftime("%m")
-        anterior["label_cmp"] = anterior["ordem"].dt.strftime("%m")
+        mapa_meses = {
+            1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai", 6: "Jun",
+            7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez"
+        }
+
+        atual["num_mes"] = atual["ordem"].dt.month
+        anterior["num_mes"] = anterior["ordem"].dt.month
+
+        atual["chave"] = atual["num_mes"].astype(str).str.zfill(2)
+        anterior["chave"] = anterior["num_mes"].astype(str).str.zfill(2)
+
+        atual["label_cmp"] = atual["num_mes"].map(mapa_meses)
+        anterior["label_cmp"] = anterior["num_mes"].map(mapa_meses)
 
     elif granularidade == "Trimestre":
         atual["chave"] = atual["ordem"].dt.quarter.astype(str)
         anterior["chave"] = anterior["ordem"].dt.quarter.astype(str)
         atual["label_cmp"] = "T" + atual["ordem"].dt.quarter.astype(str)
         anterior["label_cmp"] = "T" + anterior["ordem"].dt.quarter.astype(str)
-
     else:
         atual["chave"] = atual["ordem"].dt.strftime("%m-%d")
         anterior["chave"] = anterior["ordem"].dt.strftime("%m-%d")
@@ -563,6 +571,7 @@ def criar_grafico_comparativo(comp_df, tipo, granularidade, ano_atual, ano_anter
     nome_y = "Valor Vendido" if tipo == "Valor Vendido" else "Clientes"
 
     fig = go.Figure()
+
     fig.add_trace(go.Scatter(
         x=comp_df["label"],
         y=comp_df["atual"],
@@ -594,6 +603,15 @@ def criar_grafico_comparativo(comp_df, tipo, granularidade, ano_atual, ano_anter
         hovermode="x unified",
         legend_title="Ano"
     )
+
+    if granularidade == "Mês":
+        fig.update_xaxes(
+            type="category",
+            categoryorder="array",
+            categoryarray=["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+                           "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+        )
+
     return fig
 
 
