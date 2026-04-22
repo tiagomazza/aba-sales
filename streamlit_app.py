@@ -498,6 +498,7 @@ def agregar_comparativo_ano_anterior(df_atual, df_anterior, granularidade, tipo)
         anterior["chave"] = anterior["ordem"].dt.quarter.astype(str)
         atual["label_cmp"] = "T" + atual["ordem"].dt.quarter.astype(str)
         anterior["label_cmp"] = "T" + anterior["ordem"].dt.quarter.astype(str)
+
     else:
         atual["chave"] = atual["ordem"].dt.strftime("%m-%d")
         anterior["chave"] = anterior["ordem"].dt.strftime("%m-%d")
@@ -571,7 +572,6 @@ def criar_grafico_comparativo(comp_df, tipo, granularidade, ano_atual, ano_anter
     nome_y = "Valor Vendido" if tipo == "Valor Vendido" else "Clientes"
 
     fig = go.Figure()
-
     fig.add_trace(go.Scatter(
         x=comp_df["label"],
         y=comp_df["atual"],
@@ -613,6 +613,20 @@ def criar_grafico_comparativo(comp_df, tipo, granularidade, ano_atual, ano_anter
         )
 
     return fig
+
+
+def obter_top_clientes_com_vendedor_principal(df_filt, top_n=15):
+    base = (
+        df_filt.groupby(["cliente", "vendedor"], as_index=False)["valor_vendido"]
+        .sum()
+        .sort_values(["cliente", "valor_vendido"], ascending=[True, False])
+    )
+
+    principal = base.drop_duplicates(subset=["cliente"], keep="first").copy()
+    totais = df_filt.groupby("cliente", as_index=False)["valor_vendido"].sum()
+    result = totais.merge(principal[["cliente", "vendedor"]], on="cliente", how="left")
+    result = result.sort_values("valor_vendido", ascending=False).head(top_n)
+    return result
 
 
 def main():
@@ -708,10 +722,7 @@ def main():
 
     tipo = st.sidebar.selectbox("📊 Gráfico", ["Valor Vendido", "Clientes movimentados"])
 
-    comparar_ano_anterior = st.sidebar.checkbox(
-        "📉 Comparar com ano anterior",
-        value=False
-    )
+    comparar_ano_anterior = st.sidebar.checkbox("📉 Comparar com ano anterior", value=False)
 
     df_filt = df.copy()
 
@@ -806,12 +817,7 @@ def main():
                 if df_anterior.empty:
                     st.info("Não há dados do ano anterior para este mesmo período.")
                 else:
-                    comp_df = agregar_comparativo_ano_anterior(
-                        df_filt,
-                        df_anterior,
-                        granularidade,
-                        tipo
-                    )
+                    comp_df = agregar_comparativo_ano_anterior(df_filt, df_anterior, granularidade, tipo)
 
                     if comp_df.empty:
                         st.info("Não foi possível montar a comparação com o ano anterior.")
@@ -829,11 +835,57 @@ def main():
         if df_filt.empty:
             st.warning("Sem dados para exibir.")
         else:
-            grup_fam = df_filt.groupby("FAMILIA", as_index=False)["valor_vendido"].sum()
-            top = grup_fam.nlargest(15, "valor_vendido")
-            fig = px.bar(top, x="FAMILIA", y="valor_vendido", title="Top Famílias")
+            dividir_familia_por_vendedor = st.checkbox(
+                "Dividir Top Famílias por vendedor",
+                value=False,
+                key="chk_familia_vendedor"
+            )
+
+            if dividir_familia_por_vendedor:
+                grup_fam_vend = (
+                    df_filt.groupby(["FAMILIA", "vendedor"], as_index=False)["valor_vendido"]
+                    .sum()
+                )
+
+                top_familias = (
+                    grup_fam_vend.groupby("FAMILIA", as_index=False)["valor_vendido"]
+                    .sum()
+                    .nlargest(15, "valor_vendido")["FAMILIA"]
+                    .tolist()
+                )
+
+                top = grup_fam_vend[grup_fam_vend["FAMILIA"].isin(top_familias)].copy()
+
+                ordem_familias = (
+                    top.groupby("FAMILIA")["valor_vendido"]
+                    .sum()
+                    .sort_values(ascending=False)
+                    .index
+                    .tolist()
+                )
+
+                fig = px.bar(
+                    top,
+                    x="FAMILIA",
+                    y="valor_vendido",
+                    color="vendedor",
+                    title="Top Famílias por Vendedor",
+                    category_orders={"FAMILIA": ordem_familias},
+                    barmode="stack"
+                )
+            else:
+                grup_fam = df_filt.groupby("FAMILIA", as_index=False)["valor_vendido"].sum()
+                top = grup_fam.nlargest(15, "valor_vendido")
+                fig = px.bar(
+                    top,
+                    x="FAMILIA",
+                    y="valor_vendido",
+                    title="Top Famílias"
+                )
+
             st.plotly_chart(fig, use_container_width=True)
 
+            grup_fam = df_filt.groupby("FAMILIA", as_index=False)["valor_vendido"].sum()
             fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_fam, "FAMILIA", "Participação por Família (100%)")
             st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -853,11 +905,34 @@ def main():
         if df_filt.empty:
             st.warning("Sem dados para exibir.")
         else:
-            grup_cli = df_filt.groupby("cliente", as_index=False)["valor_vendido"].sum()
-            top = grup_cli.nlargest(15, "valor_vendido")
-            fig = px.bar(top, x="cliente", y="valor_vendido", title="Top Clientes")
+            colorir_clientes_por_vendedor = st.checkbox(
+                "Colorir Top Clientes por vendedor",
+                value=False,
+                key="chk_cliente_vendedor"
+            )
+
+            if colorir_clientes_por_vendedor:
+                top = obter_top_clientes_com_vendedor_principal(df_filt, top_n=15)
+                fig = px.bar(
+                    top,
+                    x="cliente",
+                    y="valor_vendido",
+                    color="vendedor",
+                    title="Top Clientes por Vendedor Associado"
+                )
+            else:
+                grup_cli = df_filt.groupby("cliente", as_index=False)["valor_vendido"].sum()
+                top = grup_cli.nlargest(15, "valor_vendido")
+                fig = px.bar(
+                    top,
+                    x="cliente",
+                    y="valor_vendido",
+                    title="Top Clientes"
+                )
+
             st.plotly_chart(fig, use_container_width=True)
 
+            grup_cli = df_filt.groupby("cliente", as_index=False)["valor_vendido"].sum()
             fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_cli, "cliente", "Participação por Cliente (100%)")
             st.plotly_chart(fig_pie, use_container_width=True)
 
