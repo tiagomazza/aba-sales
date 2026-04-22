@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
 from github import Github
+from pandas.errors import EmptyDataError
 
 st.set_page_config(
     page_title="ABA - Sales",
@@ -27,7 +28,7 @@ def now_pt():
 
 
 def format_pt(value):
-    if pd.isna(value):
+    if pd.isna(value) or value == 0:
         return "0,00"
     try:
         s = f"{abs(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -95,27 +96,94 @@ def obter_data_upload_github(nome_arquivo, repo_nome, token=""):
         return None
 
 
+def ler_conteudo_csv(conteudo):
+    if isinstance(conteudo, bytes):
+        raw = conteudo
+    elif hasattr(conteudo, "read"):
+        try:
+            conteudo.seek(0)
+        except Exception:
+            pass
+        raw = conteudo.read()
+    else:
+        raw = conteudo
+
+    if isinstance(raw, bytes):
+        try:
+            return raw.decode("latin1")
+        except Exception:
+            return raw.decode("utf-8", errors="ignore")
+
+    return str(raw)
+
+
+def normalizar_linhas_csv(content):
+    if "\\n" in content and "\n" not in content:
+        content = content.replace("\\n", "\n")
+
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
+    lines = content.split("\n")
+
+    if lines and lines[0].strip().lower().startswith("sep="):
+        lines = lines[1:]
+
+    lines = [line for line in lines if line.strip()]
+    return lines
+
+
+def tentar_ler_dataframe(csv_content):
+    tentativas = [
+        {"sep": ",", "engine": "python"},
+        {"sep": ";", "engine": "python"},
+        {"sep": None, "engine": "python"},
+    ]
+
+    ultimo_erro = None
+
+    for params in tentativas:
+        try:
+            df = pd.read_csv(
+                io.StringIO(csv_content),
+                quotechar='"',
+                encoding="latin1",
+                on_bad_lines="skip",
+                **params
+            )
+            if not df.empty or len(df.columns) > 0:
+                return df
+        except Exception as e:
+            ultimo_erro = e
+
+    if ultimo_erro:
+        raise ultimo_erro
+
+    raise EmptyDataError("Sem colunas para analisar no ficheiro.")
+
+
 def processar_csv(conteudo, nome_arquivo=""):
     try:
-        if isinstance(conteudo, bytes):
-            content = conteudo.decode("latin1")
-        else:
-            content = conteudo.read().decode("latin1") if hasattr(conteudo, "read") else conteudo.decode("latin1")
+        content = ler_conteudo_csv(conteudo)
+        lines = normalizar_linhas_csv(content)
 
-        lines = content.split("\\n")
-        data_lines = [line for line in lines[1:] if line.strip() and not line.startswith("sep=")]
-        csv_content = "\\n".join(data_lines)
+        if not lines:
+            st.warning(f"⚠️ {nome_arquivo}: ficheiro vazio ou sem linhas úteis após limpeza.")
+            return pd.DataFrame()
 
-        df = pd.read_csv(
-            io.StringIO(csv_content),
-            sep=",",
-            quotechar='"',
-            encoding="latin1",
-            on_bad_lines="skip",
-            engine="python"
-        )
+        csv_content = "\n".join(lines).strip()
 
-        df.columns = df.columns.str.strip().str.replace('"', "", regex=False)
+        if not csv_content:
+            st.warning(f"⚠️ {nome_arquivo}: sem conteúdo CSV após limpeza.")
+            return pd.DataFrame()
+
+        df = tentar_ler_dataframe(csv_content)
+
+        df.columns = df.columns.astype(str).str.strip().str.replace('"', "", regex=False)
+
+        colunas_obrigatorias = ["Data", "Família [Artigos]", "Vendedor", "Nome [Clientes]", "Valor [Documentos GC Lin]"]
+        faltantes = [c for c in colunas_obrigatorias if c not in df.columns]
+        if faltantes:
+            st.error(f"Erro CSV em {nome_arquivo}: colunas obrigatórias em falta: {', '.join(faltantes)}")
+            return pd.DataFrame()
 
         df["data"] = pd.to_datetime(df["Data"], format="%d-%m-%Y", errors="coerce")
         df["FAMILIA"] = df["Família [Artigos]"].fillna("SEM_FAMILIA").astype(str)
@@ -136,6 +204,7 @@ def processar_csv(conteudo, nome_arquivo=""):
             df["Valor [Documentos GC Lin]"]
             .astype(str)
             .str.replace("€", "", regex=False)
+            .str.replace(" ", "", regex=False)
             .str.replace(",", ".", regex=False),
             errors="coerce"
         )
@@ -156,8 +225,11 @@ def processar_csv(conteudo, nome_arquivo=""):
 
         return df_clean[["data", "FAMILIA", "vendedor", "cliente", "documento", "valor_vendido", "arquivo"]]
 
+    except EmptyDataError:
+        st.error(f"Erro CSV em {nome_arquivo}: sem colunas para analisar no ficheiro.")
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Erro CSV: {e}")
+        st.error(f"Erro CSV em {nome_arquivo}: {e}")
         return pd.DataFrame()
 
 
@@ -179,7 +251,14 @@ def carregar_csvs_pasta_local(pasta):
     for i, nome in enumerate(arquivos):
         st.info(f"📥 {nome}")
         try:
-            with open(os.path.join(pasta, nome), "rb") as f:
+            caminho = os.path.join(pasta, nome)
+
+            if not os.path.isfile(caminho) or os.path.getsize(caminho) == 0:
+                st.warning(f"⚠️ {nome}: ficheiro inexistente ou vazio.")
+                progress_bar.progress((i + 1) / len(arquivos))
+                continue
+
+            with open(caminho, "rb") as f:
                 conteudo = f.read()
 
             data_upload = obter_data_upload_github(nome, GITHUB_REPO, GITHUB_TOKEN)
@@ -193,6 +272,8 @@ def carregar_csvs_pasta_local(pasta):
             df_temp = processar_csv(conteudo, nome)
             if not df_temp.empty:
                 dfs.append(df_temp)
+            else:
+                st.warning(f"⚠️ {nome}: sem dados válidos após processamento.")
 
         except Exception as e:
             st.error(f"❌ Erro {nome}: {e}")
@@ -366,13 +447,12 @@ def agregar_clientes(df_base, granularidade):
 
 def deslocar_periodo_ano_anterior(data_inicio, data_fim):
     try:
-        inicio_ant = data_inicio.replace(year=data_inicio.year - 1)
-        fim_ant = data_fim.replace(year=data_fim.year - 1)
-        return inicio_ant, fim_ant
+        return data_inicio.replace(year=data_inicio.year - 1), data_fim.replace(year=data_fim.year - 1)
     except ValueError:
-        inicio_ant = data_inicio - pd.DateOffset(years=1)
-        fim_ant = data_fim - pd.DateOffset(years=1)
-        return inicio_ant.date(), fim_ant.date()
+        return (
+            (pd.Timestamp(data_inicio) - pd.DateOffset(years=1)).date(),
+            (pd.Timestamp(data_fim) - pd.DateOffset(years=1)).date()
+        )
 
 
 def agregar_comparativo_ano_anterior(df_atual, df_anterior, granularidade, tipo):
@@ -387,10 +467,10 @@ def agregar_comparativo_ano_anterior(df_atual, df_anterior, granularidade, tipo)
         return pd.DataFrame()
 
     if granularidade == "Dia":
-        atual["chave"] = pd.to_datetime(atual["ordem"]).dt.strftime("%m-%d")
-        anterior["chave"] = pd.to_datetime(anterior["ordem"]).dt.strftime("%m-%d")
-        atual["label_cmp"] = pd.to_datetime(atual["ordem"]).dt.strftime("%d/%m")
-        anterior["label_cmp"] = pd.to_datetime(anterior["ordem"]).dt.strftime("%d/%m")
+        atual["chave"] = atual["ordem"].dt.strftime("%m-%d")
+        anterior["chave"] = anterior["ordem"].dt.strftime("%m-%d")
+        atual["label_cmp"] = atual["ordem"].dt.strftime("%d/%m")
+        anterior["label_cmp"] = anterior["ordem"].dt.strftime("%d/%m")
 
     elif granularidade == "Semana":
         atual["chave"] = atual["ordem"].dt.strftime("%U")
@@ -411,10 +491,10 @@ def agregar_comparativo_ano_anterior(df_atual, df_anterior, granularidade, tipo)
         anterior["label_cmp"] = "T" + anterior["ordem"].dt.quarter.astype(str)
 
     else:
-        atual["chave"] = pd.to_datetime(atual["ordem"]).dt.strftime("%m-%d")
-        anterior["chave"] = pd.to_datetime(anterior["ordem"]).dt.strftime("%m-%d")
-        atual["label_cmp"] = pd.to_datetime(atual["ordem"]).dt.strftime("%d/%m")
-        anterior["label_cmp"] = pd.to_datetime(anterior["ordem"]).dt.strftime("%d/%m")
+        atual["chave"] = atual["ordem"].dt.strftime("%m-%d")
+        anterior["chave"] = anterior["ordem"].dt.strftime("%m-%d")
+        atual["label_cmp"] = atual["ordem"].dt.strftime("%d/%m")
+        anterior["label_cmp"] = anterior["ordem"].dt.strftime("%d/%m")
 
     atual = atual[["chave", "label_cmp", "valor"]].rename(columns={"valor": "atual"})
     anterior = anterior[["chave", "label_cmp", "valor"]].rename(columns={"valor": "anterior"})
@@ -422,12 +502,14 @@ def agregar_comparativo_ano_anterior(df_atual, df_anterior, granularidade, tipo)
     comp = pd.merge(atual, anterior, on="chave", how="outer", suffixes=("_atual", "_anterior"))
     comp["label"] = comp["label_cmp_atual"].combine_first(comp["label_cmp_anterior"])
     comp = comp.sort_values("chave")
+
     return comp[["chave", "label", "atual", "anterior"]]
 
 
-def criar_grafico_diario_vendas(graf_df):
-    fig = go.Figure()
+def criar_grafico_diario_vendas(graf_df, granularidade):
+    titulo = "Diário de vendas" if granularidade == "Dia" else f"Vendas por {granularidade.lower()}"
 
+    fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=graf_df["label"],
         y=graf_df["valor"],
@@ -441,18 +523,18 @@ def criar_grafico_diario_vendas(graf_df):
     ))
 
     fig.update_layout(
-        title="Diário de vendas",
+        title=titulo,
         xaxis_title="Período",
         yaxis_title="Valor Vendido",
         hovermode="x unified"
     )
-
     return fig
 
 
-def criar_grafico_diario_clientes(graf_df):
-    fig = go.Figure()
+def criar_grafico_diario_clientes(graf_df, granularidade):
+    titulo = "Diário de clientes movimentados" if granularidade == "Dia" else f"Clientes movimentados por {granularidade.lower()}"
 
+    fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=graf_df["label"],
         y=graf_df["valor"],
@@ -466,12 +548,11 @@ def criar_grafico_diario_clientes(graf_df):
     ))
 
     fig.update_layout(
-        title="Diário de clientes movimentados",
+        title=titulo,
         xaxis_title="Período",
         yaxis_title="Clientes",
         hovermode="x unified"
     )
-
     return fig
 
 
@@ -482,7 +563,6 @@ def criar_grafico_comparativo(comp_df, tipo, granularidade, ano_atual, ano_anter
     nome_y = "Valor Vendido" if tipo == "Valor Vendido" else "Clientes"
 
     fig = go.Figure()
-
     fig.add_trace(go.Scatter(
         x=comp_df["label"],
         y=comp_df["atual"],
@@ -490,8 +570,9 @@ def criar_grafico_comparativo(comp_df, tipo, granularidade, ano_atual, ano_anter
         name=str(ano_atual),
         line=dict(width=3, color="#1f77b4"),
         marker=dict(size=7, color="#1f77b4"),
-        hovertemplate=f"<b>%{{x}}</b><br>{ano_atual}: %{{y:,.2f}}<extra></extra>" if tipo == "Valor Vendido"
-        else f"<b>%{{x}}</b><br>{ano_atual}: %{{y:,.0f}}<extra></extra>"
+        hovertemplate=(f"<b>%{{x}}</b><br>{ano_atual}: €%{{y:,.2f}}<extra></extra>"
+                       if tipo == "Valor Vendido"
+                       else f"<b>%{{x}}</b><br>{ano_atual}: %{{y:,.0f}}<extra></extra>")
     ))
 
     fig.add_trace(go.Scatter(
@@ -501,8 +582,9 @@ def criar_grafico_comparativo(comp_df, tipo, granularidade, ano_atual, ano_anter
         name=str(ano_anterior),
         line=dict(width=2, dash="dash", color="#ff7f0e"),
         marker=dict(size=6, color="#ff7f0e"),
-        hovertemplate=f"<b>%{{x}}</b><br>{ano_anterior}: %{{y:,.2f}}<extra></extra>" if tipo == "Valor Vendido"
-        else f"<b>%{{x}}</b><br>{ano_anterior}: %{{y:,.0f}}<extra></extra>"
+        hovertemplate=(f"<b>%{{x}}</b><br>{ano_anterior}: €%{{y:,.2f}}<extra></extra>"
+                       if tipo == "Valor Vendido"
+                       else f"<b>%{{x}}</b><br>{ano_anterior}: %{{y:,.0f}}<extra></extra>")
     ))
 
     fig.update_layout(
@@ -512,16 +594,15 @@ def criar_grafico_comparativo(comp_df, tipo, granularidade, ano_atual, ano_anter
         hovermode="x unified",
         legend_title="Ano"
     )
-
     return fig
 
 
 def main():
     st.title("📊 ABA-SALES Dashboard")
-
     st.sidebar.header("🗃️ Carregar ficheiros")
 
     senha = st.sidebar.text_input("🔐 Senha:", type="password")
+
     if st.sidebar.button("🚀 Carregar dados"):
         if senha != SENHA_CORRETA:
             st.error("❌ Senha incorreta!")
@@ -538,9 +619,19 @@ def main():
         st.rerun()
 
     uploaded = st.sidebar.file_uploader("📁 Upload manual:", type="csv", accept_multiple_files=True)
+
     if uploaded:
-        dfs = [processar_csv(f, f.name) for f in uploaded]
-        df = pd.concat([d for d in dfs if not d.empty], ignore_index=True)
+        dfs = []
+        for f in uploaded:
+            try:
+                f.seek(0)
+            except Exception:
+                pass
+            df_temp = processar_csv(f, f.name)
+            if not df_temp.empty:
+                dfs.append(df_temp)
+
+        df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
         if not df.empty:
             st.session_state.update(
@@ -573,7 +664,6 @@ def main():
     st.sidebar.header("🎚️ Filtros")
 
     modo_filtro = st.sidebar.radio("📅 Modo de filtro:", ["Períodos", "Calendário"], index=0)
-
     data_inicio, data_fim = None, None
 
     if modo_filtro == "Períodos":
@@ -599,10 +689,10 @@ def main():
     )
 
     tipo = st.sidebar.selectbox("📊 Gráfico", ["Valor Vendido", "Clientes movimentados"])
+
     comparar_ano_anterior = st.sidebar.checkbox(
         "📉 Comparar com ano anterior",
-        value=False,
-        help="Mostra um gráfico de linha extra, sem etiquetas, apenas para comparação visual com o mesmo período do ano anterior."
+        value=False
     )
 
     df_filt = df.copy()
@@ -671,10 +761,10 @@ def main():
         else:
             if tipo == "Valor Vendido":
                 graf_df = agregar_vendas(df_filt, granularidade)
-                fig = criar_grafico_diario_vendas(graf_df)
+                fig = criar_grafico_diario_vendas(graf_df, granularidade)
             else:
                 graf_df = agregar_clientes(df_filt, granularidade)
-                fig = criar_grafico_diario_clientes(graf_df)
+                fig = criar_grafico_diario_clientes(graf_df, granularidade)
 
             st.plotly_chart(fig, use_container_width=True)
 
