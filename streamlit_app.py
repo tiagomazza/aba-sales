@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 import io
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -124,6 +124,7 @@ def processar_csv(conteudo, nome_arquivo=""):
             df["Valor [Documentos GC Lin]"]
             .astype(str)
             .str.replace("€", "", regex=False)
+            .str.replace(".", "", regex=False)
             .str.replace(",", ".", regex=False),
             errors="coerce"
         )
@@ -192,51 +193,22 @@ def carregar_csvs_pasta_local(pasta):
     return arquivos, df_final, datas_upload
 
 
-def criar_pie_sem_rotulos_menores_1pc(grup_df, nome_categoria, titulo):
-    fig_pie = px.pie(
-        grup_df,
-        names=nome_categoria,
-        values="valor_vendido",
-        title=titulo
-    )
-
-    fig_pie.update_traces(
-        textinfo="percent+label",
-        textfont_size=12,
-        textposition="inside",
-        texttemplate="%{label}<br>%{percent:.1%}",
-        insidetextorientation="radial"
-    )
-
-    fig_pie.update_traces(
-        hovertemplate="<b>%{label}</b><br>" +
-                      "Valor: €%{value:,.0f}<br>" +
-                      "Percentual: %{percent:.1%}<extra></extra>"
-    )
-
-    return fig_pie
-
-
 def get_date_range(periodo):
     hoje = now_pt().date()
 
     if periodo == "Esta semana":
         inicio_semana = hoje - timedelta(days=hoje.weekday())
         return inicio_semana, hoje
-
     elif periodo == "Este mês":
         inicio_mes = hoje.replace(day=1)
         return inicio_mes, hoje
-
     elif periodo == "Este ano":
         inicio_ano = hoje.replace(month=1, day=1)
         return inicio_ano, hoje
-
     elif periodo == "Semana passada":
         ultima_segunda = hoje - timedelta(days=hoje.weekday() + 7)
         ultima_sexta = ultima_segunda + timedelta(days=4)
         return ultima_segunda, ultima_sexta
-
     elif periodo == "Mês passado":
         if hoje.month == 1:
             inicio_mes_passado = datetime(hoje.year - 1, 12, 1).date()
@@ -246,7 +218,6 @@ def get_date_range(periodo):
             primeiro_mes_atual = datetime(hoje.year, hoje.month, 1).date()
             ultimo_dia = primeiro_mes_atual - timedelta(days=1)
         return inicio_mes_passado, ultimo_dia
-
     elif periodo == "Ano passado":
         inicio_ano_passado = datetime(hoje.year - 1, 1, 1).date()
         fim_ano_passado = datetime(hoje.year - 1, 12, 31).date()
@@ -255,106 +226,72 @@ def get_date_range(periodo):
     return None, None
 
 
-def formatar_label_periodo(periodos, granularidade):
-    if granularidade == "Dia":
-        return pd.to_datetime(periodos).strftime("%d/%m/%Y")
-
-    if granularidade == "Semana":
-        labels = []
-        for p in periodos:
-            inicio = p.start_time.date()
-            fim = p.end_time.date()
-            labels.append(f"{inicio.strftime('%d/%m')} → {fim.strftime('%d/%m')}")
-        return labels
-
-    if granularidade == "Mês":
-        return [p.strftime("%m/%Y") for p in periodos]
-
-    if granularidade == "Trimestre":
-        return [f"T{p.quarter}/{p.year}" for p in periodos]
-
-    return periodos.astype(str)
-
-
-def agregar_vendas(df_base, granularidade):
-    df_plot = df_base.copy()
-    df_plot["data"] = pd.to_datetime(df_plot["data"], errors="coerce")
-    df_plot = df_plot.dropna(subset=["data"])
-
-    if granularidade == "Dia":
-        grupo = df_plot.groupby(df_plot["data"].dt.date, as_index=False)["valor_vendido"].sum()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = pd.to_datetime(grupo["periodo"])
-        grupo["label"] = grupo["ordem"].dt.strftime("%d/%m/%Y")
-
-    elif granularidade == "Semana":
-        grupo = df_plot.groupby(df_plot["data"].dt.to_period("W-MON"))["valor_vendido"].sum().reset_index()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = grupo["periodo"].dt.start_time
-        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Semana")
-
-    elif granularidade == "Mês":
-        grupo = df_plot.groupby(df_plot["data"].dt.to_period("M"))["valor_vendido"].sum().reset_index()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = grupo["periodo"].dt.start_time
-        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Mês")
-
-    elif granularidade == "Trimestre":
-        grupo = df_plot.groupby(df_plot["data"].dt.to_period("Q"))["valor_vendido"].sum().reset_index()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = grupo["periodo"].dt.start_time
-        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Trimestre")
-
-    else:
-        grupo = df_plot.groupby(df_plot["data"].dt.date, as_index=False)["valor_vendido"].sum()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = pd.to_datetime(grupo["periodo"])
-        grupo["label"] = grupo["ordem"].dt.strftime("%d/%m/%Y")
-
+def gerar_label_diario(df):
+    df = df.copy()
+    df["data"] = pd.to_datetime(df["data"], errors="coerce")
+    df = df.dropna(subset=["data"])
+    grupo = df.groupby(df["data"].dt.date, as_index=False)["valor_vendido"].sum()
+    grupo.columns = ["periodo", "valor"]
+    grupo["ordem"] = pd.to_datetime(grupo["periodo"])
+    grupo["label"] = grupo["ordem"].dt.strftime("%d/%m/%Y")
     return grupo.sort_values("ordem")
 
 
-def agregar_clientes(df_base, granularidade):
-    df_plot = df_base.copy()
-    df_plot["data"] = pd.to_datetime(df_plot["data"], errors="coerce")
-    df_plot = df_plot.dropna(subset=["data"])
+def gerar_comparacao_ano_anterior(df_base, data_inicio, data_fim):
+    df = df_base.copy()
+    df["data"] = pd.to_datetime(df["data"], errors="coerce")
+    df = df.dropna(subset=["data"])
 
-    if granularidade == "Dia":
-        grupo = df_plot.groupby(df_plot["data"].dt.date)["cliente"].nunique().reset_index()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = pd.to_datetime(grupo["periodo"])
-        grupo["label"] = grupo["ordem"].dt.strftime("%d/%m/%Y")
+    atual = df[(df["data"].dt.date >= data_inicio) & (df["data"].dt.date <= data_fim)].copy()
+    if atual.empty:
+        return pd.DataFrame(), pd.DataFrame(), False
 
-    elif granularidade == "Semana":
-        grupo = df_plot.groupby(df_plot["data"].dt.to_period("W-MON"))["cliente"].nunique().reset_index()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = grupo["periodo"].dt.start_time
-        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Semana")
+    inicio_prev = data_inicio.replace(year=data_inicio.year - 1)
+    fim_prev = data_fim.replace(year=data_fim.year - 1)
 
-    elif granularidade == "Mês":
-        grupo = df_plot.groupby(df_plot["data"].dt.to_period("M"))["cliente"].nunique().reset_index()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = grupo["periodo"].dt.start_time
-        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Mês")
+    anterior = df[(df["data"].dt.date >= inicio_prev) & (df["data"].dt.date <= fim_prev)].copy()
+    if anterior.empty:
+        return atual, pd.DataFrame(), False
 
-    elif granularidade == "Trimestre":
-        grupo = df_plot.groupby(df_plot["data"].dt.to_period("Q"))["cliente"].nunique().reset_index()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = grupo["periodo"].dt.start_time
-        grupo["label"] = formatar_label_periodo(grupo["periodo"], "Trimestre")
+    atual = atual.groupby(atual["data"].dt.strftime("%m-%d"), as_index=False)["valor_vendido"].sum()
+    atual.columns = ["chave", "valor_atual"]
 
-    else:
-        grupo = df_plot.groupby(df_plot["data"].dt.date)["cliente"].nunique().reset_index()
-        grupo.columns = ["periodo", "valor"]
-        grupo["ordem"] = pd.to_datetime(grupo["periodo"])
-        grupo["label"] = grupo["ordem"].dt.strftime("%d/%m/%Y")
+    anterior = anterior.groupby(anterior["data"].dt.strftime("%m-%d"), as_index=False)["valor_vendido"].sum()
+    anterior.columns = ["chave", "valor_anterior"]
 
-    return grupo.sort_values("ordem")
+    base_datas = pd.date_range(start=pd.Timestamp(data_inicio), end=pd.Timestamp(data_fim), freq="D")
+    base = pd.DataFrame({"data": base_datas})
+    base["chave"] = base["data"].dt.strftime("%m-%d")
+    base["label"] = base["data"].dt.strftime("%d/%m/%Y")
+
+    base = base.merge(atual, on="chave", how="left").merge(anterior, on="chave", how="left")
+    base["valor_atual"] = base["valor_atual"].fillna(0)
+    base["valor_anterior"] = base["valor_anterior"].fillna(0)
+
+    return base, anterior, True
+
+
+def criar_pie_sem_rotulos_menores_1pc(grup_df, nome_categoria, titulo):
+    import plotly.express as px
+    fig_pie = px.pie(
+        grup_df,
+        names=nome_categoria,
+        values="valor_vendido",
+        title=titulo
+    )
+    fig_pie.update_traces(
+        textinfo="percent+label",
+        textfont_size=12,
+        textposition="inside",
+        texttemplate="%{label}<br>%{percent:.1%}",
+        insidetextorientation="radial",
+        hovertemplate="<b>%{label}</b><br>Valor: €%{value:,.0f}<br>Percentual: %{percent:.1%}<extra></extra>"
+    )
+    return fig_pie
 
 
 def main():
     st.title("📊 ABA-SALES Dashboard")
-
     st.sidebar.header("🗃️ Carregar ficheiros")
 
     senha = st.sidebar.text_input("🔐 Senha:", type="password")
@@ -379,11 +316,7 @@ def main():
         df = pd.concat([d for d in dfs if not d.empty], ignore_index=True)
 
         if not df.empty:
-            st.session_state.update(
-                df=df,
-                arquivos=[f.name for f in uploaded],
-                datas_upload={}
-            )
+            st.session_state.update(df=df, arquivos=[f.name for f in uploaded], datas_upload={})
             st.sidebar.success(f"✅ {len(uploaded)} | {len(df):,} linhas")
             st.rerun()
         else:
@@ -406,19 +339,12 @@ def main():
         st.info("📅 Nenhum ficheiro carregado do GitHub.")
 
     st.sidebar.header("🎚️ Filtros")
-
     modo_filtro = st.sidebar.radio("📅 Modo de filtro:", ["Períodos", "Calendário"], index=0)
-
     data_inicio, data_fim = None, None
 
     if modo_filtro == "Períodos":
-        periodo = st.sidebar.selectbox(
-            "Períodos de análise",
-            ["Esta semana", "Este mês", "Este ano", "Semana passada", "Mês passado", "Ano passado"]
-        )
+        periodo = st.sidebar.selectbox("Períodos de análise", ["Esta semana", "Este mês", "Este ano", "Semana passada", "Mês passado", "Ano passado"])
         data_inicio, data_fim = get_date_range(periodo)
-        if data_inicio and data_fim:
-            st.sidebar.info(f"📊 {periodo}: {data_inicio.strftime('%d/%m')} → {data_fim.strftime('%d/%m')}")
     else:
         hoje = now_pt()
         ontem = hoje - timedelta(days=1)
@@ -427,40 +353,19 @@ def main():
         if len(date_range) == 2:
             data_inicio, data_fim = date_range[0], date_range[1]
 
-    granularidade = st.sidebar.selectbox(
-        "🗓️ Agrupar gráficos por",
-        ["Dia", "Semana", "Mês", "Trimestre"],
-        index=0
-    )
-
     df_filt = df.copy()
-
     if data_inicio and data_fim:
-        df_filt = df_filt[
-            (df_filt["data"].dt.date >= data_inicio) &
-            (df_filt["data"].dt.date <= data_fim)
-        ]
+        df_filt = df_filt[(df_filt["data"].dt.date >= data_inicio) & (df_filt["data"].dt.date <= data_fim)]
 
     vendedores_unicos = sorted(df_filt["vendedor"].dropna().unique())
     pre_vend = ["VT", "OC", "DB", "HR", "AB", "FL"]
-    vendedor = st.sidebar.multiselect(
-        "🦸 Vendedor",
-        options=vendedores_unicos,
-        default=[v for v in pre_vend if v in vendedores_unicos]
-    )
+    vendedor = st.sidebar.multiselect("🦸 Vendedor", options=vendedores_unicos, default=[v for v in pre_vend if v in vendedores_unicos])
 
     docs_unicos = sorted(df_filt["documento"].dropna().unique())
     pre_docs = ["FT", "FTP", "NC", "NFI"]
-    doc_filter = st.sidebar.multiselect(
-        "📄 Documento",
-        options=docs_unicos,
-        default=[d for d in pre_docs if d in docs_unicos]
-    )
+    doc_filter = st.sidebar.multiselect("📄 Documento", options=docs_unicos, default=[d for d in pre_docs if d in docs_unicos])
 
-    familia = st.sidebar.multiselect(
-        "Ⓜ️ Família",
-        sorted(df_filt["FAMILIA"].dropna().unique())
-    )
+    familia = st.sidebar.multiselect("Ⓜ️ Família", sorted(df_filt["FAMILIA"].dropna().unique()))
 
     if vendedor:
         df_filt = df_filt[df_filt["vendedor"].isin(vendedor)]
@@ -476,7 +381,6 @@ def main():
     cli = df_filt["cliente"].nunique()
     fam = df_filt["FAMILIA"].nunique()
     vend = df_filt["vendedor"].nunique()
-
     dias_com_venda = df_filt.groupby(df_filt["data"].dt.date)["valor_vendido"].count().gt(0).sum()
     ticket = total / dias_com_venda if dias_com_venda > 0 else 0
 
@@ -491,37 +395,75 @@ def main():
     with cols[4]:
         st.metric("💳 Ticket médio", f"€{format_pt(ticket)}")
 
-    tipo = st.sidebar.selectbox("📊 Gráfico", ["Valor Vendido", "Clientes movimentados"])
+    comparar_ano_anterior = st.checkbox("Comparar com o ano anterior", value=False)
+
     tabs = st.tabs(["📈 Diário de vendas", "Ⓜ️ Família", "🦸 Vendedor", "👥 Cliente", "📊 Pivot"])
 
     with tabs[0]:
         if df_filt.empty:
             st.warning("Sem dados para exibir no gráfico.")
         else:
-            if tipo == "Valor Vendido":
-                graf_df = agregar_vendas(df_filt, granularidade)
-                fig = px.bar(
-                    graf_df,
-                    x="label",
-                    y="valor",
-                    title=f"Valor vendido por {granularidade}",
-                    text="valor"
-                )
-                fig.update_yaxes(title="Valor Vendido")
+            if comparar_ano_anterior and data_inicio and data_fim:
+                base, _, disponivel = gerar_comparacao_ano_anterior(df_filt, data_inicio, data_fim)
+                if disponivel and not base.empty:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=base["label"],
+                        y=base["valor_atual"],
+                        mode="lines+markers+text",
+                        name="Ano atual",
+                        text=[f"€{format_pt(v)}" for v in base["valor_atual"]],
+                        textposition="top center",
+                        hovertemplate="Data: %{x}<br>Valor: €%{y:,.2f}<extra></extra>"
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=base["label"],
+                        y=base["valor_anterior"],
+                        mode="lines+markers+text",
+                        name="Ano anterior",
+                        text=[f"€{format_pt(v)}" for v in base["valor_anterior"]],
+                        textposition="top center",
+                        hovertemplate="Data: %{x}<br>Valor: €%{y:,.2f}<extra></extra>"
+                    ))
+                    fig.update_layout(
+                        title="Diário de vendas com comparação anual",
+                        xaxis_title="Período",
+                        yaxis_title="€",
+                        hovermode="x unified"
+                    )
+                    fig.update_yaxes(tickprefix="€", separatethousands=True)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Não existem dados suficientes para comparar com o ano anterior.")
+                    graf_df = gerar_label_diario(df_filt)
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=graf_df["label"],
+                        y=graf_df["valor"],
+                        mode="lines+markers+text",
+                        name="Vendas",
+                        text=[f"€{format_pt(v)}" for v in graf_df["valor"]],
+                        textposition="top center",
+                        hovertemplate="Data: %{x}<br>Valor: €%{y:,.2f}<extra></extra>"
+                    ))
+                    fig.update_layout(title="Diário de vendas", xaxis_title="Período", yaxis_title="€", hovermode="x unified")
+                    fig.update_yaxes(tickprefix="€", separatethousands=True)
+                    st.plotly_chart(fig, use_container_width=True)
             else:
-                graf_df = agregar_clientes(df_filt, granularidade)
-                fig = px.bar(
-                    graf_df,
-                    x="label",
-                    y="valor",
-                    title=f"Clientes movimentados por {granularidade}",
-                    text="valor"
-                )
-                fig.update_yaxes(title="Clientes")
-
-            fig.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
-            fig.update_xaxes(title="Período")
-            st.plotly_chart(fig, use_container_width=True)
+                graf_df = gerar_label_diario(df_filt)
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=graf_df["label"],
+                    y=graf_df["valor"],
+                    mode="lines+markers+text",
+                    name="Vendas",
+                    text=[f"€{format_pt(v)}" for v in graf_df["valor"]],
+                    textposition="top center",
+                    hovertemplate="Data: %{x}<br>Valor: €%{y:,.2f}<extra></extra>"
+                ))
+                fig.update_layout(title="Diário de vendas", xaxis_title="Período", yaxis_title="€", hovermode="x unified")
+                fig.update_yaxes(tickprefix="€", separatethousands=True)
+                st.plotly_chart(fig, use_container_width=True)
 
     with tabs[1]:
         if df_filt.empty:
@@ -529,9 +471,9 @@ def main():
         else:
             grup_fam = df_filt.groupby("FAMILIA", as_index=False)["valor_vendido"].sum()
             top = grup_fam.nlargest(15, "valor_vendido")
+            import plotly.express as px
             fig = px.bar(top, x="FAMILIA", y="valor_vendido", title="Top Famílias")
             st.plotly_chart(fig, use_container_width=True)
-
             fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_fam, "FAMILIA", "Participação por Família (100%)")
             st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -541,9 +483,9 @@ def main():
         else:
             grup_vend = df_filt.groupby("vendedor", as_index=False)["valor_vendido"].sum()
             top = grup_vend.nlargest(15, "valor_vendido")
+            import plotly.express as px
             fig = px.bar(top, x="vendedor", y="valor_vendido", title="Top Vendedores")
             st.plotly_chart(fig, use_container_width=True)
-
             fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_vend, "vendedor", "Participação por Vendedor (100%)")
             st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -553,9 +495,9 @@ def main():
         else:
             grup_cli = df_filt.groupby("cliente", as_index=False)["valor_vendido"].sum()
             top = grup_cli.nlargest(15, "valor_vendido")
+            import plotly.express as px
             fig = px.bar(top, x="cliente", y="valor_vendido", title="Top Clientes")
             st.plotly_chart(fig, use_container_width=True)
-
             fig_pie = criar_pie_sem_rotulos_menores_1pc(grup_cli, "cliente", "Participação por Cliente (100%)")
             st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -565,7 +507,6 @@ def main():
         else:
             linha = st.selectbox("➖ Linhas", ["FAMILIA", "vendedor", "cliente"])
             colu = st.selectbox("➕ Colunas", ["vendedor", "Nenhuma", "FAMILIA"])
-
             func_label = st.selectbox("🔢 Agregador", ["Soma", "Média"])
             func_map = {"Soma": "sum", "Média": "mean"}
             func = func_map[func_label]
