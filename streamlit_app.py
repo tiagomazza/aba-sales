@@ -915,22 +915,43 @@ def main():
             )
 
             if colorir_clientes_por_vendedor:
-                top = obter_top_clientes_com_vendedor_principal(df_filt, top_n=15)
+                top = obter_top_clientes_com_vendedor_principal(df_filt, top_n=15).copy()
+                top = top.sort_values("valor_vendido", ascending=False)
+
+                ordem_clientes = top["cliente"].tolist()
+
                 fig = px.bar(
                     top,
                     x="cliente",
                     y="valor_vendido",
                     color="vendedor",
-                    title="Top Clientes coloridos por Vendedor Associado"
+                    title="Top Clientes coloridos por Vendedor Associado",
+                    category_orders={"cliente": ordem_clientes}
                 )
+
+                fig.update_xaxes(
+                    categoryorder="array",
+                    categoryarray=ordem_clientes
+                )
+
             else:
                 grup_cli = df_filt.groupby("cliente", as_index=False)["valor_vendido"].sum()
-                top = grup_cli.nlargest(15, "valor_vendido")
+                top = grup_cli.nlargest(15, "valor_vendido").copy()
+                top = top.sort_values("valor_vendido", ascending=False)
+
+                ordem_clientes = top["cliente"].tolist()
+
                 fig = px.bar(
                     top,
                     x="cliente",
                     y="valor_vendido",
-                    title="Top Clientes"
+                    title="Top Clientes",
+                    category_orders={"cliente": ordem_clientes}
+                )
+
+                fig.update_xaxes(
+                    categoryorder="array",
+                    categoryarray=ordem_clientes
                 )
 
             st.plotly_chart(fig, use_container_width=True)
