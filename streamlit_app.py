@@ -9,12 +9,14 @@ import os
 from github import Github
 from pandas.errors import EmptyDataError
 
+
 st.set_page_config(
     page_title="ABA - Sales",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 
 PASTA_CSV_LOCAL = "data"
 SENHA_CORRETA = st.secrets.get("PASSWORD", "")
@@ -179,7 +181,13 @@ def processar_csv(conteudo, nome_arquivo=""):
 
         df.columns = df.columns.astype(str).str.strip().str.replace('"', "", regex=False)
 
-        colunas_obrigatorias = ["Data", "Família [Artigos]", "Vendedor", "Nome [Clientes]", "Valor [Documentos GC Lin]"]
+        colunas_obrigatorias = [
+            "Data",
+            "Família [Artigos]",
+            "Vendedor",
+            "Nome [Clientes]",
+            "Valor [Documentos GC Lin]"
+        ]
         faltantes = [c for c in colunas_obrigatorias if c not in df.columns]
         if faltantes:
             st.error(f"Erro CSV em {nome_arquivo}: colunas obrigatórias em falta: {', '.join(faltantes)}")
@@ -212,14 +220,13 @@ def processar_csv(conteudo, nome_arquivo=""):
         df["valor_vendido"] = df.apply(valor_liquido, axis=1)
 
         df_clean = df.dropna(subset=["data", "valor_vendido"]).copy()
-        df_clean = df_clean[df_clean["venda_bruta"] > 0].copy()
 
+        # Excluir qualquer linha com motivo de anulação preenchido
         if "Motivo de anulação do documento" in df_clean.columns:
-            anuladas = (
-                df_clean["Motivo de anulação do documento"].notna() &
-                (df_clean["Motivo de anulação do documento"].astype(str).str.strip() != "")
-            )
-            df_clean = df_clean[~anuladas].copy()
+            motivo = df_clean["Motivo de anulação do documento"].fillna("").astype(str).str.strip()
+            df_clean = df_clean[motivo == ""].copy()
+
+        df_clean = df_clean[df_clean["venda_bruta"] > 0].copy()
 
         df_clean["arquivo"] = nome_arquivo
 
