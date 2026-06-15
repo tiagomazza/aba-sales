@@ -9,12 +9,14 @@ import os
 from github import Github
 from pandas.errors import EmptyDataError
 
+
 st.set_page_config(
     page_title="ABA - Sales",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 
 PASTA_CSV_LOCAL = "data"
 SENHA_CORRETA = st.secrets.get("PASSWORD", "")
@@ -179,7 +181,13 @@ def processar_csv(conteudo, nome_arquivo=""):
 
         df.columns = df.columns.astype(str).str.strip().str.replace('"', "", regex=False)
 
-        colunas_obrigatorias = ["Data", "Família [Artigos]", "Vendedor", "Nome [Clientes]", "Valor [Documentos GC Lin]"]
+        colunas_obrigatorias = [
+            "Data",
+            "Família [Artigos]",
+            "Vendedor",
+            "Nome [Clientes]",
+            "Valor [Documentos GC Lin]"
+        ]
         faltantes = [c for c in colunas_obrigatorias if c not in df.columns]
         if faltantes:
             st.error(f"Erro CSV em {nome_arquivo}: colunas obrigatórias em falta: {', '.join(faltantes)}")
@@ -212,15 +220,12 @@ def processar_csv(conteudo, nome_arquivo=""):
         df["valor_vendido"] = df.apply(valor_liquido, axis=1)
 
         df_clean = df.dropna(subset=["data", "valor_vendido"]).copy()
-        df_clean = df_clean[df_clean["venda_bruta"] > 0].copy()
 
         if "Motivo de anulação do documento" in df_clean.columns:
-            anuladas = (
-                df_clean["Motivo de anulação do documento"].notna() &
-                (df_clean["Motivo de anulação do documento"].astype(str).str.strip() != "")
-            )
-            df_clean = df_clean[~anuladas].copy()
+            motivo = df_clean["Motivo de anulação do documento"].fillna("").astype(str).str.strip()
+            df_clean = df_clean[motivo == ""].copy()
 
+        df_clean = df_clean[df_clean["venda_bruta"] > 0].copy()
         df_clean["arquivo"] = nome_arquivo
 
         return df_clean[["data", "FAMILIA", "vendedor", "cliente", "documento", "valor_vendido", "arquivo"]]
@@ -699,24 +704,22 @@ def main():
     data_inicio, data_fim = None, None
 
     if modo_filtro == "Períodos":
-        periodo = st.sidebar.selectbox(
-            "Períodos de análise",
-            ["Esta semana", "Este mês", "Este ano", "Semana passada", "Mês passado", "Ano passado"]
-        )
+        opcoes_periodo = ["Este ano", "Este mês", "Esta semana", "Semana passada", "Mês passado", "Ano passado"]
+        periodo = st.sidebar.selectbox("Períodos de análise", opcoes_periodo, index=0)
         data_inicio, data_fim = get_date_range(periodo)
         if data_inicio and data_fim:
             st.sidebar.info(f"📊 {periodo}: {data_inicio.strftime('%d/%m')} → {data_fim.strftime('%d/%m')}")
     else:
         hoje = now_pt()
         ontem = hoje - timedelta(days=1)
-        inicio_mes = hoje.replace(day=1)
-        date_range = st.sidebar.date_input("📅 Escolha um intervalo", (inicio_mes.date(), ontem.date()))
+        inicio_ano = hoje.replace(month=1, day=1)
+        date_range = st.sidebar.date_input("📅 Escolha um intervalo", (inicio_ano.date(), ontem.date()))
         if len(date_range) == 2:
             data_inicio, data_fim = date_range[0], date_range[1]
 
     granularidade = st.sidebar.selectbox(
         "🗓️ Agrupar gráficos por",
-        ["Dia", "Semana", "Mês", "Trimestre"],
+        ["Mês", "Dia", "Semana", "Trimestre"],
         index=0
     )
 
@@ -912,22 +915,43 @@ def main():
             )
 
             if colorir_clientes_por_vendedor:
-                top = obter_top_clientes_com_vendedor_principal(df_filt, top_n=15)
+                top = obter_top_clientes_com_vendedor_principal(df_filt, top_n=15).copy()
+                top = top.sort_values("valor_vendido", ascending=False)
+
+                ordem_clientes = top["cliente"].tolist()
+
                 fig = px.bar(
                     top,
                     x="cliente",
                     y="valor_vendido",
                     color="vendedor",
-                    title="Top Clientes por Vendedor Associado"
+                    title="Top Clientes coloridos por Vendedor Associado",
+                    category_orders={"cliente": ordem_clientes}
                 )
+
+                fig.update_xaxes(
+                    categoryorder="array",
+                    categoryarray=ordem_clientes
+                )
+
             else:
                 grup_cli = df_filt.groupby("cliente", as_index=False)["valor_vendido"].sum()
-                top = grup_cli.nlargest(15, "valor_vendido")
+                top = grup_cli.nlargest(15, "valor_vendido").copy()
+                top = top.sort_values("valor_vendido", ascending=False)
+
+                ordem_clientes = top["cliente"].tolist()
+
                 fig = px.bar(
                     top,
                     x="cliente",
                     y="valor_vendido",
-                    title="Top Clientes"
+                    title="Top Clientes",
+                    category_orders={"cliente": ordem_clientes}
+                )
+
+                fig.update_xaxes(
+                    categoryorder="array",
+                    categoryarray=ordem_clientes
                 )
 
             st.plotly_chart(fig, use_container_width=True)
