@@ -736,7 +736,7 @@ def main():
         ]
 
     vendedores_unicos = sorted(df_filt["vendedor"].dropna().unique())
-    pre_vend = ["VT", "OC", "DB", "HR", "AB", "FL"]
+    pre_vend = ["VT", "OC", "DB", "HR", "AB", "FL","LC"]
     vendedor = st.sidebar.multiselect(
         "🦸 Vendedor",
         options=vendedores_unicos,
