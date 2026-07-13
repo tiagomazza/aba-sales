@@ -184,7 +184,7 @@ def processar_csv(conteudo, nome_arquivo=""):
         colunas_obrigatorias = [
             "Data",
             "Família [Artigos]",
-            "Vendedor",
+            "Vendedor [Documentos GC Lin]",
             "Nome [Clientes]",
             "Valor [Documentos GC Lin]"
         ]
@@ -196,7 +196,7 @@ def processar_csv(conteudo, nome_arquivo=""):
         df["data"] = pd.to_datetime(df["Data"], format="%d-%m-%Y", errors="coerce")
         df["FAMILIA"] = df["Família [Artigos]"].fillna("SEM_FAMILIA").astype(str)
         df["documento"] = df.get("Doc.", pd.Series([""] * len(df))).fillna("").astype(str)
-        df["vendedor"] = df["Vendedor"].fillna("SEM_VENDEDOR").astype(str)
+        df["vendedor"] = df["Vendedor [Documentos GC Lin]"].fillna("SEM_VENDEDOR").astype(str)
 
         df["cliente"] = (
             df.get("Terceiro", pd.Series([""] * len(df)))
@@ -317,18 +317,22 @@ def criar_pie_sem_rotulos_menores_1pc(grup_df, nome_categoria, titulo):
 
 def get_date_range(periodo):
     hoje = now_pt().date()
+    ontem = hoje - timedelta(days=1)
 
     if periodo == "Esta semana":
         inicio_semana = hoje - timedelta(days=hoje.weekday())
-        return inicio_semana, hoje
+        fim = max(inicio_semana, ontem)
+        return inicio_semana, fim
 
     elif periodo == "Este mês":
         inicio_mes = hoje.replace(day=1)
-        return inicio_mes, hoje
+        fim = max(inicio_mes, ontem)
+        return inicio_mes, fim
 
     elif periodo == "Este ano":
         inicio_ano = hoje.replace(month=1, day=1)
-        return inicio_ano, hoje
+        fim = max(inicio_ano, ontem)
+        return inicio_ano, fim
 
     elif periodo == "Semana passada":
         ultima_segunda = hoje - timedelta(days=hoje.weekday() + 7)
@@ -736,7 +740,7 @@ def main():
         ]
 
     vendedores_unicos = sorted(df_filt["vendedor"].dropna().unique())
-    pre_vend = ["VT", "OC", "DB", "HR", "AB", "FL","LC"]
+    pre_vend = ["VT", "OC", "DB", "HR", "AB", "FL", "LC"]
     vendedor = st.sidebar.multiselect(
         "🦸 Vendedor",
         options=vendedores_unicos,
@@ -791,14 +795,7 @@ def main():
         if df_filt.empty:
             st.warning("Sem dados para exibir no gráfico.")
         else:
-            if tipo == "Valor Vendido":
-                graf_df = agregar_vendas(df_filt, granularidade)
-                fig = criar_grafico_diario_vendas(graf_df, granularidade)
-            else:
-                graf_df = agregar_clientes(df_filt, granularidade)
-                fig = criar_grafico_diario_clientes(graf_df, granularidade)
-
-            st.plotly_chart(fig, use_container_width=True)
+            fig = None
 
             if comparar_ano_anterior and data_inicio and data_fim:
                 inicio_ant, fim_ant = deslocar_periodo_ano_anterior(data_inicio, data_fim)
@@ -819,20 +816,41 @@ def main():
 
                 if df_anterior.empty:
                     st.info("Não há dados do ano anterior para este mesmo período.")
+                    if tipo == "Valor Vendido":
+                        graf_df = agregar_vendas(df_filt, granularidade)
+                        fig = criar_grafico_diario_vendas(graf_df, granularidade)
+                    else:
+                        graf_df = agregar_clientes(df_filt, granularidade)
+                        fig = criar_grafico_diario_clientes(graf_df, granularidade)
                 else:
                     comp_df = agregar_comparativo_ano_anterior(df_filt, df_anterior, granularidade, tipo)
 
                     if comp_df.empty:
                         st.info("Não foi possível montar a comparação com o ano anterior.")
+                        if tipo == "Valor Vendido":
+                            graf_df = agregar_vendas(df_filt, granularidade)
+                            fig = criar_grafico_diario_vendas(graf_df, granularidade)
+                        else:
+                            graf_df = agregar_clientes(df_filt, granularidade)
+                            fig = criar_grafico_diario_clientes(graf_df, granularidade)
                     else:
-                        fig_comp = criar_grafico_comparativo(
+                        fig = criar_grafico_comparativo(
                             comp_df,
                             tipo,
                             granularidade,
                             data_inicio.year,
                             inicio_ant.year
                         )
-                        st.plotly_chart(fig_comp, use_container_width=True)
+            else:
+                if tipo == "Valor Vendido":
+                    graf_df = agregar_vendas(df_filt, granularidade)
+                    fig = criar_grafico_diario_vendas(graf_df, granularidade)
+                else:
+                    graf_df = agregar_clientes(df_filt, granularidade)
+                    fig = criar_grafico_diario_clientes(graf_df, granularidade)
+
+            if fig is not None:
+                st.plotly_chart(fig, use_container_width=True)
 
     with tabs[1]:
         if df_filt.empty:
