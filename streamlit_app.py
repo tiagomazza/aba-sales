@@ -606,7 +606,7 @@ def criar_grafico_comparativo(comp_df, tipo, granularidade, ano_atual, ano_anter
     ))
 
     fig.update_layout(
-        title=f"Comparação visual com ano anterior por {granularidade.lower()}",
+        title=f"Comparativo com ano passado agrupado por  {granularidade.lower()}",
         xaxis_title="Período comparável",
         yaxis_title=nome_y,
         hovermode="x unified",
