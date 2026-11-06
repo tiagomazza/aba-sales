@@ -25,18 +25,27 @@ def load_data(url, enc):
     except Exception:
         df_temp = pd.read_csv(url, sep=";", encoding=enc, header=1)
 
-    # Limpeza avançada por Regex para remover padrões de fórmulas do Excel (ex: ="4488", ="...", etc.)
+    # Limpeza geral de segurança em todas as colunas de texto
     for col in df_temp.columns:
         if df_temp[col].dtype == 'object':
+            df_temp[col] = df_temp[col].astype(str).str.strip()
+
+    # Tratamento específico para remover o padrão exacto '="' no início e '"' no fim nas colunas críticas
+    colunas_alvo = ['cliente', 'telefone', 'telemóvel', 'telemovel']
+    for col in df_temp.columns:
+        # Verifica se o nome da coluna corresponde (ignorando maiúsculas/minúsculas e acentos)
+        col_lower = col.strip().lower()
+        if any(alvo in col_lower for alvo in colunas_alvo):
             df_temp[col] = (
                 df_temp[col]
                 .astype(str)
-                .str.replace(r'^[="]+|["]+$', '', regex=True)  # Remove '="' no início e '"' no fim
-                .str.replace(r'[\"\=]', '', regex=True)       # Remove quaisquer aspas ou iguais residuais
-                .str.strip()                                 # Remove espaços em branco
+                .str.replace(r'^="', '', regex=True)  # Remove '="' do início
+                .str.replace(r'"$', '', regex=True)   # Remove '"' do final
+                .str.replace(r'=', '', regex=True)    # Remove qualquer '=' residual
+                .str.strip()
             )
 
-    # Tratamento da coluna 'inactivo' (procura por correspondência exata de nome ignorando maiúsculas/minúsculas)
+    # Tratamento da coluna 'inactivo' (0 -> "não" e 1 -> "sim")
     col_inactivo = [c for c in df_temp.columns if c.strip().lower() in ['inactivo', 'inativo']]
     if col_inactivo:
         target_col = col_inactivo[0]
