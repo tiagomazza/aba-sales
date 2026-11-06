@@ -25,27 +25,25 @@ def load_data(url, enc):
     except Exception:
         df_temp = pd.read_csv(url, sep=";", encoding=enc, header=1)
 
-    # Limpeza geral de segurança em todas as colunas de texto
+    # Limpeza cirúrgica e radical de células para eliminar o formato '="valor"' ou quaisquer aspas e iguais residuais
     for col in df_temp.columns:
         if df_temp[col].dtype == 'object':
-            df_temp[col] = df_temp[col].astype(str).str.strip()
+            def limpar_celula(val):
+                if pd.isna(val):
+                    return ""
+                s = str(val).strip()
+                # Se a célula estiver no formato exato '="VALOR"' (começa com =" e acaba com ")
+                if s.startswith('="') and s.endswith('"'):
+                    return s[2:-1]  # Retira os 2 primeiros (="'") e o último caractere ('"')
+                # Se começar apenas com o sinal de igual
+                if s.startswith('='):
+                    s = s[1:]
+                # Remove quaisquer resíduos de aspas ou iguais restantes e espaços em branco
+                return s.replace('"', '').replace('=', '').strip()
 
-    # Tratamento específico para remover o padrão exacto '="' no início e '"' no fim nas colunas críticas
-    colunas_alvo = ['cliente', 'telefone', 'telemóvel', 'telemovel']
-    for col in df_temp.columns:
-        # Verifica se o nome da coluna corresponde (ignorando maiúsculas/minúsculas e acentos)
-        col_lower = col.strip().lower()
-        if any(alvo in col_lower for alvo in colunas_alvo):
-            df_temp[col] = (
-                df_temp[col]
-                .astype(str)
-                .str.replace(r'^="', '', regex=True)  # Remove '="' do início
-                .str.replace(r'"$', '', regex=True)   # Remove '"' do final
-                .str.replace(r'=', '', regex=True)    # Remove qualquer '=' residual
-                .str.strip()
-            )
+            df_temp[col] = df_temp[col].apply(limpar_celula)
 
-    # Tratamento da coluna 'inactivo' (0 -> "não" e 1 -> "sim")
+    # Tratamento da coluna 'inactivo' (procura por correspondência exata de nome ignorando maiúsculas/minúsculas)
     col_inactivo = [c for c in df_temp.columns if c.strip().lower() in ['inactivo', 'inativo']]
     if col_inactivo:
         target_col = col_inactivo[0]
